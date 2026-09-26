@@ -41,6 +41,7 @@ function enqueue<T>(job: () => Promise<T>): Promise<T> {
 export type RenderAssets = {
   audioPath: string;
   imagePaths: string[];
+  music: { path: string; volume: number } | null;
 };
 
 export type RenderProgress = (stage: "bundling" | "queued" | "rendering", progress?: number) => void;
@@ -72,7 +73,13 @@ export async function renderVideo(
         fs.copyFileSync(file, path.join(jobPublic, name));
         return `jobs/${jobId}/${name}`;
       };
-      const inputProps = buildVideoProps(timing, plan, rel(assets.audioPath), assets.imagePaths.map(rel));
+      const inputProps = buildVideoProps(
+        timing,
+        plan,
+        rel(assets.audioPath),
+        assets.imagePaths.map(rel),
+        assets.music ? { src: rel(assets.music.path), volume: assets.music.volume } : null,
+      );
 
       const composition = await selectComposition({ serveUrl, id: "MainVideo", inputProps });
       fs.mkdirSync(RENDERS_DIR, { recursive: true });

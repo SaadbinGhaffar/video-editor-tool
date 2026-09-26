@@ -8,12 +8,15 @@ import {
   checkAudio,
   checkImages,
   checkMediaUrls,
+  checkMusic,
   checkTranscript,
   computeTiming,
   downloadBlob,
   isFile,
+  isMusicUrl,
   parseCaptionStyle,
   parseImageStats,
+  parseMusicVolume,
   parseNiche,
   parseTiming,
   saveUpload,
@@ -38,7 +41,11 @@ type Job = {
   niche: ReturnType<typeof parseNiche>;
   caption: ReturnType<typeof parseCaptionStyle>;
   imageStats: (ImageStats | null)[];
-} & ({ kind: "upload"; audio: File; images: File[] } | { kind: "blob"; audioUrl: string; imageUrls: string[] });
+  musicVolume: number;
+} & (
+  | { kind: "upload"; audio: File; images: File[]; music: File | null }
+  | { kind: "blob"; audioUrl: string; imageUrls: string[]; musicUrl: string | null }
+);
 
 /** Parse either multipart (local) or JSON with Vercel Blob URLs (Vercel). */
 async function readJob(req: Request): Promise<Job | Response> {
@@ -47,12 +54,17 @@ async function readJob(req: Request): Promise<Job | Response> {
       const b = (await req.json()) as Record<string, unknown>;
       const imageUrls = Array.isArray(b.imageUrls) ? b.imageUrls : [];
       const transcript = String(b.transcript ?? "").trim();
-      const problem = checkMediaUrls(b.audioUrl, imageUrls) ?? checkTranscript(transcript);
+      const problem =
+        checkMediaUrls(b.audioUrl, imageUrls) ??
+        checkTranscript(transcript) ??
+        (b.musicUrl && !isMusicUrl(b.musicUrl) ? "Background music must be an MP3, WAV or M4A file." : null);
       if (problem) return badRequest(problem);
       return {
         kind: "blob",
         audioUrl: b.audioUrl as string,
         imageUrls: imageUrls as string[],
+        musicUrl: isMusicUrl(b.musicUrl) ? b.musicUrl : null,
+        musicVolume: parseMusicVolume(b.musicVolume),
         transcript,
         imageCount: imageUrls.length,
         previewTiming: parseTiming(b.timing ? JSON.stringify(b.timing) : null, imageUrls.length),
@@ -65,12 +77,15 @@ async function readJob(req: Request): Promise<Job | Response> {
     const audio = form.get("audio");
     const transcript = String(form.get("transcript") ?? "").trim();
     const images = form.getAll("images").filter(isFile);
-    const problem = checkAudio(audio) ?? checkTranscript(transcript) ?? checkImages(images);
+    const music = form.get("music");
+    const problem = checkAudio(audio) ?? checkTranscript(transcript) ?? checkImages(images) ?? checkMusic(music);
     if (problem) return badRequest(problem);
     return {
       kind: "upload",
       audio: audio as File,
       images,
+      music: isFile(music) ? music : null,
+      musicVolume: parseMusicVolume(form.get("musicVolume")),
       transcript,
       imageCount: images.length,
       previewTiming: parseTiming(form.get("timing") as string | null, images.length),
@@ -125,7 +140,13 @@ export async function POST(req: Request) {
         if (job.kind === "blob") {
           // Vercel: render in a Sandbox straight from the Blob URLs, detached.
           const plan = planFor(job.imageStats);
-          const inputProps = buildVideoProps(t, plan, job.audioUrl, job.imageUrls);
+          const inputProps = buildVideoProps(
+            t,
+            plan,
+            job.audioUrl,
+            job.imageUrls,
+            job.musicUrl ? { src: job.musicUrl, volume: job.musicVolume } : null,
+          );
           const { startSandboxRender } = await import("@/lib/sandbox-render");
           const ids = await startSandboxRender(jobId, inputProps, plan, (message, progress) =>
             send({ type: "progress", stage: "bundling", message, progress }),
@@ -147,7 +168,10 @@ export async function POST(req: Request) {
           return aspect ? { ...NEUTRAL_IMAGE_STATS, aspect } : null;
         });
         const plan = planFor(imageStats);
-        const output = await renderVideo(jobId, { audioPath: audio, imagePaths }, t, plan, (stage, progress) => {
+        const music = job.music
+          ? { path: await saveUpload(job.music, workDir, "music"), volume: job.musicVolume }
+          : null;
+        const output = await renderVideo(jobId, { audioPath: audio, imagePaths, music }, t, plan, (stage, progress) => {
           if (stage === "bundling") {
             send({ type: "progress", stage, message: "Preparing the video renderer (slow the first time)…" });
           } else if (stage === "queued") {

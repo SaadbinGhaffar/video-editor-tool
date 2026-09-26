@@ -35,7 +35,7 @@ const uploads = new WeakMap<File, Promise<string>>();
 /** Upload a file straight from the browser to Vercel Blob (Vercel mode). Returns its URL. */
 export function uploadToBlob(
   file: File,
-  kind: "audio" | "image",
+  kind: "audio" | "image" | "music",
   accessKey: string,
   onProgress?: (loaded: number) => void,
 ): Promise<string> {

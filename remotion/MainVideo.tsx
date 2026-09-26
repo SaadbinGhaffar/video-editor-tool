@@ -2,6 +2,7 @@ import { TransitionSeries } from "@remotion/transitions";
 import { Fragment } from "react";
 import { AbsoluteFill, Audio, staticFile, useVideoConfig } from "remotion";
 import type { MainVideoProps } from "../lib/types";
+import { BackgroundMusic } from "./BackgroundMusic";
 import { Captions } from "./Captions";
 import { Effects, LETTERBOX_HEIGHT, Letterbox } from "./effects";
 import { KenBurnsImage } from "./KenBurnsImage";
@@ -10,7 +11,7 @@ import { presentationFor, timingFor } from "./transitions";
 /** Remote/blob URLs pass through; anything else is a path in the bundle's public dir. */
 const resolveSrc = (src: string) => (/^(https?:|data:|blob:)/.test(src) ? src : staticFile(src));
 
-export const MainVideo: React.FC<MainVideoProps> = ({ audioSrc, audioOffset, scenes, cues, style }) => {
+export const MainVideo: React.FC<MainVideoProps> = ({ audioSrc, audioOffset, scenes, cues, style, music }) => {
   const { fps, durationInFrames } = useVideoConfig();
 
   // Each transition is centred on its cut point: scene i (i > 0) starts half a
@@ -59,6 +60,7 @@ export const MainVideo: React.FC<MainVideoProps> = ({ audioSrc, audioOffset, sce
       {style.effects.letterbox ? <Letterbox /> : null}
       <Captions cues={cues} styleId={style.caption} bottom={captionBottom} />
       {audioSrc ? <Audio src={resolveSrc(audioSrc)} trimBefore={Math.round(audioOffset * fps)} /> : null}
+      {music ? <BackgroundMusic music={music} cues={cues} resolve={resolveSrc} /> : null}
     </AbsoluteFill>
   );
 };

@@ -3,9 +3,9 @@
 import dynamic from "next/dynamic";
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { detectNicheFromText, NICHE_LABELS } from "@/lib/niche";
-import { buildVideoProps, CAPTION_STYLE_LABELS, NICHE_PRESETS, planStyle } from "@/lib/style";
+import { buildVideoProps, NICHE_PRESETS, planStyle } from "@/lib/style";
 import {
-  CAPTION_STYLES,
+  DEFAULT_MUSIC_VOLUME,
   MAX_IMAGES,
   MIN_IMAGES,
   NICHES,
@@ -16,7 +16,9 @@ import {
   type PipelineStage,
   type Timing,
 } from "@/lib/types";
+import { CaptionStylePicker } from "./CaptionStylePicker";
 import { ImageGallery, type ImageItem } from "./ImageGallery";
+import { MusicInput, type MusicChoice } from "./MusicInput";
 import { measureImage } from "./imageStats";
 import { accessHeaders, loadAccessKey, pollRender, saveAccessKey, uploadToBlob, type AppConfig } from "./transport";
 
@@ -54,6 +56,8 @@ export default function Home() {
   const [images, setImages] = useState<ImageItem[]>([]);
   const [nicheChoice, setNicheChoice] = useState<NicheId | "auto">("auto");
   const [captionChoice, setCaptionChoice] = useState<CaptionStyleId | "auto">("auto");
+  const [music, setMusic] = useState<MusicChoice | null>(null);
+  const [musicVolume, setMusicVolume] = useState(DEFAULT_MUSIC_VOLUME);
   const [busy, setBusy] = useState<Busy>(null);
   const [stage, setStage] = useState<PipelineStage>("upload");
   const [message, setMessage] = useState("");
@@ -167,7 +171,9 @@ export default function Home() {
   /** Vercel mode: put the audio (and optionally images) in Blob storage first. */
   async function uploadMedia(withImages: boolean) {
     if (!audio) throw new Error("Please add your narration audio file.");
-    const files = [audio.file, ...(withImages ? images.map((i) => i.file) : [])];
+    const extra = withImages ? images.map((i) => i.file) : [];
+    const musicFile = withImages && music ? music.file : null;
+    const files = [audio.file, ...extra, ...(musicFile ? [musicFile] : [])];
     const total = files.reduce((n, f) => n + f.size, 0);
     const loaded = new Map<File, number>();
     const track = (f: File) => (n: number) => {
@@ -175,10 +181,16 @@ export default function Home() {
       const done = [...loaded.values()].reduce((a, b) => a + b, 0);
       setMessage(`Uploading files… ${Math.round((done / Math.max(total, 1)) * 100)}%`);
     };
-    const [audioUrl, ...imageUrls] = await Promise.all(
-      files.map((f, i) => uploadToBlob(f, i === 0 ? "audio" : "image", accessKey, track(f))),
+    const urls = await Promise.all(
+      files.map((f, i) =>
+        uploadToBlob(f, i === 0 ? "audio" : f === musicFile ? "music" : "image", accessKey, track(f)),
+      ),
     );
-    return { audioUrl, imageUrls };
+    return {
+      audioUrl: urls[0],
+      imageUrls: urls.slice(1, 1 + extra.length),
+      musicUrl: musicFile ? urls[urls.length - 1] : null,
+    };
   }
 
   async function onPreview() {
@@ -224,16 +236,17 @@ export default function Home() {
       niche: nicheChoice,
       captionStyle: captionChoice,
       imageStats: images.map((i) => i.stats),
+      musicVolume,
     };
     try {
       let res: Response;
       if (config?.mode === "vercel") {
-        const { audioUrl, imageUrls } = await uploadMedia(true);
+        const { audioUrl, imageUrls, musicUrl } = await uploadMedia(true);
         res = await fetch("/api/generate", {
           method: "POST",
           headers: { "Content-Type": "application/json", ...accessHeaders(accessKey) },
           // Reuse the preview's timing so the render matches it and skips transcription.
-          body: JSON.stringify({ audioUrl, imageUrls, transcript, ...style, timing: freshTiming }),
+          body: JSON.stringify({ audioUrl, imageUrls, musicUrl, transcript, ...style, timing: freshTiming }),
         });
       } else {
         const body = new FormData();
@@ -243,6 +256,10 @@ export default function Home() {
         body.append("imageStats", JSON.stringify(style.imageStats));
         body.append("niche", style.niche);
         body.append("captionStyle", style.captionStyle);
+        if (music) {
+          body.append("music", music.file);
+          body.append("musicVolume", String(musicVolume));
+        }
         if (freshTiming) body.append("timing", JSON.stringify(freshTiming));
         res = await fetch("/api/generate", { method: "POST", body, headers: accessHeaders(accessKey) });
       }
@@ -306,8 +323,9 @@ export default function Home() {
       plan,
       audio.url,
       images.map((i) => i.url),
+      music ? { src: music.url, volume: musicVolume } : null,
     );
-  }, [freshTiming, audio, images, niche, captionStyle]);
+  }, [freshTiming, audio, images, niche, captionStyle, music, musicVolume]);
 
   const current = stepIndex(stage);
   const detectedLabel =
@@ -389,7 +407,7 @@ export default function Home() {
           />
         </div>
 
-        <div className="field style-row">
+        <div className="field style-single">
           <div>
             <label htmlFor="niche">Style</label>
             <select
@@ -413,23 +431,29 @@ export default function Home() {
                 : "Manual choice."}
             </p>
           </div>
-          <div>
-            <label htmlFor="caption">Captions</label>
-            <select
-              id="caption"
-              value={captionChoice}
-              onChange={(e) => setCaptionChoice(e.target.value as CaptionStyleId | "auto")}
-              disabled={!!busy}
-            >
-              <option value="auto">Match style: {CAPTION_STYLE_LABELS[NICHE_PRESETS[niche].caption]}</option>
-              {CAPTION_STYLES.map((c) => (
-                <option key={c} value={c}>
-                  {CAPTION_STYLE_LABELS[c]}
-                </option>
-              ))}
-            </select>
-            <p className="hint">Changing either updates the preview instantly.</p>
-          </div>
+        </div>
+
+        <div className="field">
+          <span className="label">Caption style</span>
+          <CaptionStylePicker
+            value={captionChoice}
+            autoStyle={NICHE_PRESETS[niche].caption}
+            onChange={setCaptionChoice}
+            disabled={!!busy}
+          />
+          <p className="hint">Changing the style or captions updates the preview instantly.</p>
+        </div>
+
+        <div className="field">
+          <label htmlFor="music">4. Background music (optional)</label>
+          <MusicInput
+            music={music}
+            volume={musicVolume}
+            onChange={setMusic}
+            onVolume={setMusicVolume}
+            videoDuration={freshTiming?.durationInSeconds ?? null}
+            disabled={!!busy}
+          />
         </div>
 
         <div className="actions">

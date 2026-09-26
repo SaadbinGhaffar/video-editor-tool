@@ -1,5 +1,8 @@
+import { CAPTION_LOOKS, FONTS } from "./captionLooks";
 import {
+  CAPTION_STYLES,
   FPS,
+  type BackgroundMusic,
   type CaptionStyleId,
   type ImageStats,
   type MainVideoProps,
@@ -95,15 +98,10 @@ export const NICHE_PRESETS: Record<NicheId, NichePreset> = {
   },
 };
 
-export const CAPTION_STYLE_LABELS: Record<CaptionStyleId, string> = {
-  bold: "Bold (yellow highlight)",
-  clean: "Clean (boxed, business)",
-  impact: "Impact (all caps)",
-  tech: "Tech (cyan)",
-  cinematic: "Cinematic (serif)",
-  playful: "Playful (comic)",
-  warm: "Warm (rounded)",
-};
+/** "Bold · Montserrat Black" etc. */
+export const CAPTION_STYLE_LABELS = Object.fromEntries(
+  CAPTION_STYLES.map((id) => [id, `${CAPTION_LOOKS[id].label} · ${FONTS[CAPTION_LOOKS[id].font].label}`]),
+) as Record<CaptionStyleId, string>;
 
 /** Small, stable 32-bit hash so "random" choices repeat between preview and render. */
 export function hashString(s: string): number {
@@ -215,9 +213,11 @@ export function buildVideoProps(
   plan: StylePlan,
   audioSrc: string,
   imageSrcs: string[],
+  music: BackgroundMusic | null = null,
 ): MainVideoProps {
   const { scenes: looks, ...style } = plan;
   return {
+    music: music ? { src: music.src, volume: clamp(music.volume, 0, 1) } : null,
     audioSrc,
     audioOffset: timing.audioOffset,
     durationInSeconds: timing.durationInSeconds,

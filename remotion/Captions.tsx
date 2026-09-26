@@ -1,34 +1,10 @@
 import { AbsoluteFill, interpolate, spring, useCurrentFrame, useVideoConfig } from "remotion";
 import type { CaptionCue, CaptionStyleId } from "../lib/types";
-import { fontFamily, type FontKey } from "./fonts";
+import { CAPTION_LOOKS, CRISP_TEXT, FONTS, type CaptionLook } from "../lib/captionLooks";
+import { fontFamily } from "./fonts";
 
-type Look = {
-  font: FontKey;
-  weight: number;
-  /** px at 1080p. Every look keeps glyphs at roughly 7–9% of frame height so they read on a phone. */
-  size: number;
-  uppercase: boolean;
-  color: string;
-  highlight: string;
-  /** "color": active word changes colour. "box": active word gets a coloured pill. */
-  mode: "color" | "box";
-  boxText?: string;
-  stroke: number;
-  /** Dark rounded panel behind the whole cue. */
-  panel: boolean;
-  enter: "pop" | "rise" | "punch" | "fade" | "bounce";
-  letterSpacing?: string;
-};
-
-const LOOKS: Record<CaptionStyleId, Look> = {
-  bold: { font: "montserrat", weight: 800, size: 112, uppercase: false, color: "#fff", highlight: "#FFD60A", mode: "color", stroke: 14, panel: false, enter: "pop" },
-  clean: { font: "inter", weight: 800, size: 100, uppercase: false, color: "#fff", highlight: "#2563EB", mode: "box", boxText: "#fff", stroke: 0, panel: true, enter: "rise" },
-  impact: { font: "bebas", weight: 400, size: 150, uppercase: true, color: "#fff", highlight: "#FF3B30", mode: "color", stroke: 12, panel: false, enter: "punch", letterSpacing: "0.02em" },
-  tech: { font: "spaceGrotesk", weight: 700, size: 106, uppercase: false, color: "#fff", highlight: "#22D3EE", mode: "color", stroke: 12, panel: false, enter: "rise" },
-  cinematic: { font: "merriweather", weight: 900, size: 92, uppercase: false, color: "#F5F1E8", highlight: "#F2C14E", mode: "color", stroke: 10, panel: false, enter: "fade" },
-  playful: { font: "bangers", weight: 400, size: 132, uppercase: true, color: "#fff", highlight: "#39FF6A", mode: "box", boxText: "#111", stroke: 12, panel: false, enter: "bounce", letterSpacing: "0.03em" },
-  warm: { font: "poppins", weight: 800, size: 106, uppercase: false, color: "#fff", highlight: "#FF9F43", mode: "color", stroke: 13, panel: false, enter: "pop" },
-};
+type Look = CaptionLook;
+const LOOKS = CAPTION_LOOKS;
 
 export const Captions: React.FC<{ cues: CaptionCue[]; styleId: CaptionStyleId; bottom: number }> = ({
   cues,
@@ -90,8 +66,9 @@ const Cue: React.FC<{ cue: CaptionCue; t: number; frame: number; fps: number; lo
     >
       <div
         style={{
-          fontFamily: `${fontFamily(look.font)}, "Arial Black", Arial, sans-serif`,
-          fontWeight: look.weight,
+          fontFamily: `"${fontFamily(look.font)}", "Arial Black", Arial, sans-serif`,
+          fontWeight: FONTS[look.font].weight,
+          ...CRISP_TEXT,
           fontSize: look.size,
           lineHeight: 1.12,
           textAlign: "center",

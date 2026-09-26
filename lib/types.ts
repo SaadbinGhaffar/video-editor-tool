@@ -27,7 +27,7 @@ export const MIN_SCENE_SECONDS = 1.2;
 export const NICHES = ["general", "tech", "travel", "business", "fitness", "food", "gaming", "documentary"] as const;
 export type NicheId = (typeof NICHES)[number];
 
-export const CAPTION_STYLES = ["bold", "clean", "impact", "tech", "cinematic", "playful", "warm"] as const;
+export const CAPTION_STYLES = ["bold", "classic", "clean", "impact", "tech", "cinematic", "playful", "warm"] as const;
 export type CaptionStyleId = (typeof CAPTION_STYLES)[number];
 
 export type TransitionKind =
@@ -122,7 +122,17 @@ export type MainVideoProps = {
   scenes: Scene[];
   cues: CaptionCue[];
   style: Omit<StylePlan, "scenes">;
+  /** Optional background music, looped under the narration for the whole video. */
+  music: BackgroundMusic | null;
 };
+
+export type BackgroundMusic = {
+  src: string;
+  /** Level while nobody is speaking, 0–1. It dips automatically under the narration. */
+  volume: number;
+};
+
+export const DEFAULT_MUSIC_VOLUME = 0.3;
 
 export type PipelineStage = "upload" | "transcribing" | "bundling" | "queued" | "rendering";
 

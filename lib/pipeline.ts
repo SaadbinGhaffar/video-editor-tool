@@ -8,6 +8,7 @@ import { detectNiche } from "./niche-llm";
 import { transcribeWithTimestamps, UserFacingError } from "./stt";
 import {
   CAPTION_STYLES,
+  DEFAULT_MUSIC_VOLUME,
   MAX_IMAGES,
   MIN_IMAGES,
   MIN_SCENE_SECONDS,
@@ -38,6 +39,26 @@ export function checkAudio(audio: FormDataEntryValue | null): string | null {
   }
   if (audio.size > MAX_AUDIO_BYTES) return "The audio file is larger than 200 MB.";
   return null;
+}
+
+/** Optional background music: same formats as narration, up to 50 MB. */
+export function checkMusic(music: FormDataEntryValue | null): string | null {
+  if (music === null || (typeof music === "object" && music.size === 0)) return null;
+  if (!isFile(music)) return "The background music upload couldn't be read.";
+  if (!AUDIO_EXT.has(path.extname(music.name).toLowerCase())) {
+    return `"${music.name}" isn't a supported music file. Use MP3, WAV or M4A.`;
+  }
+  if (music.size > 50 * 1024 * 1024) return "The background music file is larger than 50 MB.";
+  return null;
+}
+
+export function isMusicUrl(url: unknown): url is string {
+  return isBlobUrl(url) && AUDIO_EXT.has(path.extname(new URL(url).pathname).toLowerCase());
+}
+
+export function parseMusicVolume(v: unknown): number {
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : DEFAULT_MUSIC_VOLUME;
 }
 
 export function checkTranscript(transcript: string): string | null {

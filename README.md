@@ -10,6 +10,27 @@ in-browser with `@remotion/player`, using your local files. Changing the style, 
 look, or the image order updates the preview instantly. **Render MP4** reuses the preview's
 timing, so the file matches what you saw.
 
+**Background music** (optional) is a clip, ideally 30–60 s, that plays under the narration
+for the whole video. It loops if it's shorter than the video and is trimmed if it's longer. It
+fades in and out, and automatically dips to 40% while you speak so the voice stays clear.
+Its level has a slider.
+
+**Captions** come in 8 styles, shown in the page as live samples in their real fonts:
+
+| Style | Font |
+|---|---|
+| Bold | Montserrat Black |
+| Classic YouTube | Anton |
+| Clean | Inter ExtraBold |
+| Impact | Bebas Neue |
+| Tech | Space Grotesk Bold |
+| Cinematic | Merriweather Black |
+| Playful | Bangers |
+| Warm | Poppins ExtraBold |
+
+All are Google Fonts. The renderer waits for the font file before drawing any frame, so a
+render never falls back to a system font.
+
 ## Setup
 
 ```bash
