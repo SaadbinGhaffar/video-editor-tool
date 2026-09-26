@@ -9,3 +9,5 @@ next-env.d.ts
 .remotion-bundle
 .env
 *.log
+remotion-build
+.vercel

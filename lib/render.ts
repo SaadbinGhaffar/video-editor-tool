@@ -4,14 +4,14 @@ import path from "node:path";
 import { buildVideoProps } from "./style";
 import type { StylePlan, Timing } from "./types";
 
-const ENTRY_POINT = path.join(process.cwd(), "remotion", "index.ts");
+const ENTRY_POINT = path.join(/* turbopackIgnore: true */ process.cwd(), "remotion", "index.ts");
 // Dedicated (empty) public dir for the bundle, so the app's own /public —
 // which holds finished renders — isn't copied into every bundle.
-const REMOTION_PUBLIC_DIR = path.join(process.cwd(), "remotion", "public");
+const REMOTION_PUBLIC_DIR = path.join(/* turbopackIgnore: true */ process.cwd(), "remotion", "public");
 // Fixed output dir: each server start re-bundles over it instead of leaving
 // a new bundle in the OS temp folder every time.
-const BUNDLE_DIR = path.join(process.cwd(), ".remotion-bundle");
-export const RENDERS_DIR = path.join(process.cwd(), "public", "renders");
+const BUNDLE_DIR = path.join(/* turbopackIgnore: true */ process.cwd(), ".remotion-bundle");
+export const RENDERS_DIR = path.join(/* turbopackIgnore: true */ process.cwd(), "public", "renders");
 
 // Bundling takes a while (webpack), so do it once per server process. Stored on
 // globalThis so dev-mode module reloads don't re-bundle on every request.

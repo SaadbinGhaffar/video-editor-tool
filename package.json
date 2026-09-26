@@ -11,7 +11,9 @@
     "setup:whisper": "tsx scripts/setup-whisper.ts",
     "typecheck": "tsc --noEmit",
     "test:style": "tsx scripts/test-style.ts",
-    "test": "tsx scripts/test-align.ts && tsx scripts/test-style.ts"
+    "test": "tsx scripts/test-align.ts && tsx scripts/test-style.ts",
+    "bundle:remotion": "remotion bundle remotion/index.ts --out-dir remotion-build --public-dir remotion/public",
+    "vercel-build": "npm run bundle:remotion && next build"
   },
   "dependencies": {
     "@remotion/bundler": "4.0.529",
@@ -23,6 +25,9 @@
     "@remotion/player": "4.0.529",
     "@remotion/renderer": "4.0.529",
     "@remotion/transitions": "4.0.529",
+    "@remotion/vercel": "4.0.529",
+    "@vercel/blob": "^2.8.0",
+    "@vercel/sandbox": "1.6.0",
     "next": "^16.3.6",
     "openai": "^7.23.0",
     "react": "^19.3.0",
@@ -36,5 +41,8 @@
     "@types/react-dom": "^19.3.0",
     "tsx": "^4.23.15",
     "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }

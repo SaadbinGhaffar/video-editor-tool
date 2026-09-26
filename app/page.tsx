@@ -18,6 +18,7 @@ import {
 } from "@/lib/types";
 import { ImageGallery, type ImageItem } from "./ImageGallery";
 import { measureImage } from "./imageStats";
+import { accessHeaders, loadAccessKey, pollRender, saveAccessKey, uploadToBlob, type AppConfig } from "./transport";
 
 // The Remotion player only runs in the browser.
 const PreviewPlayer = dynamic(() => import("./PreviewPlayer"), {
@@ -62,6 +63,16 @@ export default function Home() {
   const [timing, setTiming] = useState<{ key: string; value: Timing } | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const startedAt = useRef(0);
+  const [config, setConfig] = useState<AppConfig | null>(null);
+  const [accessKey, setAccessKey] = useState("");
+
+  useEffect(() => {
+    setAccessKey(loadAccessKey());
+    fetch("/api/config")
+      .then((r) => r.json())
+      .then((c: AppConfig) => setConfig(c))
+      .catch(() => setConfig(null));
+  }, []);
 
   const currentKey = timingKey(audio?.file ?? null, transcript, images.length);
   const freshTiming = timing && timing.key === currentKey ? timing.value : null;
@@ -153,18 +164,47 @@ export default function Home() {
     setError(msg === "Failed to fetch" ? "Couldn't reach the server. Is it still running?" : msg);
   }
 
+  /** Vercel mode: put the audio (and optionally images) in Blob storage first. */
+  async function uploadMedia(withImages: boolean) {
+    if (!audio) throw new Error("Please add your narration audio file.");
+    const files = [audio.file, ...(withImages ? images.map((i) => i.file) : [])];
+    const total = files.reduce((n, f) => n + f.size, 0);
+    const loaded = new Map<File, number>();
+    const track = (f: File) => (n: number) => {
+      loaded.set(f, n);
+      const done = [...loaded.values()].reduce((a, b) => a + b, 0);
+      setMessage(`Uploading files… ${Math.round((done / Math.max(total, 1)) * 100)}%`);
+    };
+    const [audioUrl, ...imageUrls] = await Promise.all(
+      files.map((f, i) => uploadToBlob(f, i === 0 ? "audio" : "image", accessKey, track(f))),
+    );
+    return { audioUrl, imageUrls };
+  }
+
   async function onPreview() {
     if (!checkInputs() || !audio) return;
     const key = currentKey;
-    const body = new FormData();
-    body.append("audio", audio.file);
-    body.append("transcript", transcript);
-    body.append("imageCount", String(images.length));
-
-    begin("preview", "Transcribing audio and aligning your transcript…");
-    setStage("transcribing");
+    begin("preview", "Uploading audio…");
     try {
-      const res = await fetch("/api/timing", { method: "POST", body });
+      let res: Response;
+      if (config?.mode === "vercel") {
+        const { audioUrl } = await uploadMedia(false);
+        setStage("transcribing");
+        setMessage("Transcribing audio and aligning your transcript…");
+        res = await fetch("/api/timing", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...accessHeaders(accessKey) },
+          body: JSON.stringify({ audioUrl, transcript, imageCount: images.length }),
+        });
+      } else {
+        const body = new FormData();
+        body.append("audio", audio.file);
+        body.append("transcript", transcript);
+        body.append("imageCount", String(images.length));
+        setStage("transcribing");
+        setMessage("Transcribing audio and aligning your transcript…");
+        res = await fetch("/api/timing", { method: "POST", body, headers: accessHeaders(accessKey) });
+      }
       if (!res.ok) throw new Error(await readError(res));
       setTiming({ key, value: (await res.json()) as Timing });
     } catch (err) {
@@ -178,20 +218,34 @@ export default function Home() {
     e.preventDefault();
     if (!checkInputs() || !audio) return;
     setResult(null);
-
-    const body = new FormData();
-    body.append("audio", audio.file);
-    body.append("transcript", transcript);
-    for (const img of images) body.append("images", img.file);
-    body.append("imageStats", JSON.stringify(images.map((i) => i.stats)));
-    body.append("niche", nicheChoice);
-    body.append("captionStyle", captionChoice);
-    // Reuse the preview's timing so the render matches it and skips transcription.
-    if (freshTiming) body.append("timing", JSON.stringify(freshTiming));
-
     begin("render", "Uploading files…");
+
+    const style = {
+      niche: nicheChoice,
+      captionStyle: captionChoice,
+      imageStats: images.map((i) => i.stats),
+    };
     try {
-      const res = await fetch("/api/generate", { method: "POST", body });
+      let res: Response;
+      if (config?.mode === "vercel") {
+        const { audioUrl, imageUrls } = await uploadMedia(true);
+        res = await fetch("/api/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...accessHeaders(accessKey) },
+          // Reuse the preview's timing so the render matches it and skips transcription.
+          body: JSON.stringify({ audioUrl, imageUrls, transcript, ...style, timing: freshTiming }),
+        });
+      } else {
+        const body = new FormData();
+        body.append("audio", audio.file);
+        body.append("transcript", transcript);
+        for (const img of images) body.append("images", img.file);
+        body.append("imageStats", JSON.stringify(style.imageStats));
+        body.append("niche", style.niche);
+        body.append("captionStyle", style.captionStyle);
+        if (freshTiming) body.append("timing", JSON.stringify(freshTiming));
+        res = await fetch("/api/generate", { method: "POST", body, headers: accessHeaders(accessKey) });
+      }
       if (!res.ok || !res.body) throw new Error(await readError(res));
 
       const reader = res.body.getReader();
@@ -210,9 +264,21 @@ export default function Home() {
           if (ev.type === "progress") {
             setStage(ev.stage);
             setMessage(ev.message);
-            setProgress(ev.progress ?? null);
+            setProgress(ev.stage === "rendering" ? (ev.progress ?? 0) : null);
           } else if (ev.type === "done") {
             setResult(ev);
+            finished = true;
+          } else if (ev.type === "detached") {
+            // Vercel: the render runs on in a sandbox; follow it by polling.
+            setStage("rendering");
+            setMessage("Rendering video…");
+            setProgress(0);
+            const { sandboxId, cmdId, type: _type, ...meta } = ev;
+            const out = await pollRender({ sandboxId, cmdId }, accessKey, (msg, p) => {
+              setMessage(msg);
+              setProgress(p);
+            });
+            setResult({ type: "done", url: out.url, downloadUrl: out.downloadUrl, ...meta });
             finished = true;
           } else {
             throw new Error(ev.message);
@@ -256,6 +322,36 @@ export default function Home() {
       </p>
 
       <form onSubmit={onRender}>
+        {config?.accessKeyRequired ? (
+          <div className="field">
+            <label htmlFor="access-key">Access key</label>
+            <input
+              id="access-key"
+              type="password"
+              className="text"
+              value={accessKey}
+              autoComplete="current-password"
+              onChange={(e) => {
+                setAccessKey(e.target.value);
+                saveAccessKey(e.target.value);
+              }}
+              disabled={!!busy}
+            />
+            <p className="hint">This deployment is private. The key is remembered in this browser.</p>
+          </div>
+        ) : null}
+        {config?.mode === "vercel" && (!config.blobConfigured || !config.transcriptionConfigured) ? (
+          <div className="error" role="alert">
+            Setup incomplete:{" "}
+            {[
+              !config.blobConfigured && "connect a Vercel Blob store to this project",
+              !config.transcriptionConfigured && "add the OPENAI_API_KEY environment variable",
+            ]
+              .filter(Boolean)
+              .join(" and ")}
+            , then redeploy.
+          </div>
+        ) : null}
         <div className="field">
           <label htmlFor="audio">1. Narration audio</label>
           <input

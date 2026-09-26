@@ -11,7 +11,7 @@ export { UserFacingError };
 /** OpenAI's upload limit for the transcription endpoint. */
 const OPENAI_MAX_BYTES = 25 * 1024 * 1024;
 
-export const WHISPER_DIR = path.join(process.cwd(), ".whisper");
+export const WHISPER_DIR = path.join(/* turbopackIgnore: true */ process.cwd(), ".whisper");
 export const WHISPER_CPP_DIR = path.join(WHISPER_DIR, "whisper.cpp");
 export const WHISPER_CPP_VERSION = "1.5.5";
 export const WHISPER_MODEL = "base.en" as const;

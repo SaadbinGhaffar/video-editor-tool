@@ -113,12 +113,40 @@ npm run typecheck
 
 ## Deploying
 
-Rendering launches headless Chromium and ffmpeg, which needs a long-running Node process with
-a few GB of RAM. **This won't work on edge or typical serverless functions.** Deploy to
-Railway, Render, Fly.io or a VPS (`npm run build && npm start`), and make sure any reverse
-proxy allows long requests. On an 8-core laptop, rendering runs at roughly 6–10 frames/s
-depending on the style's effects, so a 30 s clip takes ~2–3 minutes. For concurrent users,
-swap `renderMedia` for Remotion Lambda.
+### Vercel
 
-On Linux, Chromium needs the usual shared libraries. See
+On Vercel (detected via the `VERCEL` env var) the app switches to a serverless-friendly flow:
+
+- **Uploads** go from the browser straight to **Vercel Blob** (`/api/upload` issues client
+  tokens), because Functions only accept ~4.5 MB request bodies.
+- **Transcription** needs **`OPENAI_API_KEY`**, since local whisper.cpp can't run in a Function.
+- **Rendering** runs in **Vercel Sandbox** through `@remotion/vercel`. The Remotion bundle
+  is prebuilt during `vercel-build` (`remotion-build/`) and uploaded into a sandbox, which
+  renders detached and uploads the MP4 to Blob. The page polls `/api/render-progress`.
+  The first render sets up a sandbox (system libraries, Chrome), which takes a few minutes,
+  and saves a **snapshot**. Every later render boots from the snapshot in seconds.
+- **Cleanup:** a daily cron (`/api/cleanup`, protected by `CRON_SECRET`) deletes uploads and
+  renders older than 24 h.
+
+Setup:
+
+1. Import the GitHub repo in Vercel (or run `vercel` from this folder).
+2. **Storage → Create → Blob** with **public** access, connected to the project. This adds
+   `BLOB_READ_WRITE_TOKEN`. The render machine loads media by URL, so the store must be
+   public. File URLs are unguessable and deleted after 24 h.
+3. Add environment variables:
+   - `OPENAI_API_KEY` (required)
+   - `APP_ACCESS_KEY` (strongly recommended: without it, anyone with the URL can run
+     renders on your account)
+   - `CRON_SECRET` (any random string)
+   - optionally `SANDBOX_VCPUS` (default 4; more is faster and costs more) and `NICHE_MODEL`
+4. Redeploy. Sandbox, Blob and OpenAI usage are billed to your accounts.
+
+### Your own server
+
+Anywhere else the app renders locally with `@remotion/renderer`. That needs a long-running
+Node process with a few GB of RAM, for example Railway, Render, Fly.io or a VPS
+(`npm run build && npm start`); make sure any reverse proxy allows long requests. On an
+8-core laptop, rendering runs at roughly 6–10 frames/s depending on the style's effects, so a
+30 s clip takes ~2–3 minutes. On Linux, Chromium needs the usual shared libraries. See
 https://www.remotion.dev/docs/miscellaneous/linux-dependencies.

@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import {
   AbsoluteFill,
-  cancelRender,
   continueRender,
   delayRender,
   Easing,
@@ -91,12 +90,13 @@ export const KenBurnsImage: React.FC<{
   );
 };
 
-const backdropCache = new Map<string, string>();
+const backdropCache = new Map<string, string | "css">();
 
 /**
  * Blurred, darkened copy of the image used behind portrait photos. It's
  * blurred once into a small canvas and scaled up, instead of running a
- * full-frame 40px blur on every frame.
+ * full-frame 40px blur on every frame. If the image can't be read into a
+ * canvas (e.g. served cross-origin without CORS), it falls back to a CSS blur.
  */
 const BlurredBackdrop: React.FC<{ src: string; filter: string }> = ({ src, filter }) => {
   const key = `${src}|${filter}`;
@@ -105,6 +105,10 @@ const BlurredBackdrop: React.FC<{ src: string; filter: string }> = ({ src, filte
 
   useEffect(() => {
     if (url) return;
+    const done = (out: string | "css") => {
+      backdropCache.set(key, out);
+      setUrl(out);
+    };
     const img = new Image();
     img.crossOrigin = "anonymous";
     img.onload = () => {
@@ -121,14 +125,12 @@ const BlurredBackdrop: React.FC<{ src: string; filter: string }> = ({ src, filte
         const dw = img.naturalWidth * scale;
         const dh = img.naturalHeight * scale;
         ctx.drawImage(img, (w - dw) / 2, (h - dh) / 2, dw, dh);
-        const out = canvas.toDataURL("image/jpeg", 0.9);
-        backdropCache.set(key, out);
-        setUrl(out);
-      } catch (err) {
-        cancelRender(err);
+        done(canvas.toDataURL("image/jpeg", 0.9));
+      } catch {
+        done("css");
       }
     };
-    img.onerror = () => cancelRender(new Error(`Could not load image ${src}`));
+    img.onerror = () => done("css");
     img.src = src;
   }, [key, src, filter, url]);
 
@@ -136,6 +138,22 @@ const BlurredBackdrop: React.FC<{ src: string; filter: string }> = ({ src, filte
     if (url && handle !== null) continueRender(handle);
   }, [url, handle]);
 
+  if (url === "css") {
+    return (
+      <Img
+        src={src}
+        style={{
+          position: "absolute",
+          inset: 0,
+          width: "100%",
+          height: "100%",
+          objectFit: "cover",
+          filter: `${filter} blur(40px) brightness(0.6)`,
+          transform: "scale(1.2)",
+        }}
+      />
+    );
+  }
   return url ? (
     <img src={url} alt="" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />
   ) : null;

@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { alignTranscript, groupIntoCues, planSceneBoundaries, tokenizeTranscript } from "./align";
 import { detectSpeechBounds, toWav16k } from "./audio";
+import { isBlobUrl } from "./deploy";
 import { detectNiche } from "./niche-llm";
 import { transcribeWithTimestamps, UserFacingError } from "./stt";
 import {
@@ -61,6 +62,36 @@ export function checkImages(images: File[]): string | null {
   return null;
 }
 
+const MEDIA_EXT: Record<string, Set<string>> = { audio: AUDIO_EXT, image: IMAGE_EXT };
+
+/**
+ * Download a file the browser uploaded to Vercel Blob into the work dir.
+ * Callers must have checked the URL with isBlobUrl().
+ */
+export async function downloadBlob(url: string, dir: string, baseName: string, kind: "audio" | "image"): Promise<string> {
+  const ext = path.extname(new URL(url).pathname).toLowerCase();
+  if (!MEDIA_EXT[kind].has(ext)) {
+    throw new UserFacingError(kind === "audio" ? "Use an MP3, WAV or M4A audio file." : "Use JPG, PNG or WebP images.");
+  }
+  const res = await fetch(url);
+  if (!res.ok) throw new UserFacingError("An uploaded file couldn't be read back from storage. Please upload again.");
+  const limit = kind === "audio" ? MAX_AUDIO_BYTES : MAX_IMAGE_BYTES;
+  if (Number(res.headers.get("content-length") ?? 0) > limit) throw new UserFacingError("An uploaded file is too large.");
+  const p = path.join(dir, `${baseName}${ext}`);
+  fs.writeFileSync(p, Buffer.from(await res.arrayBuffer()));
+  return p;
+}
+
+/** Checks for media referenced by URL (Vercel mode) instead of uploaded in the request. */
+export function checkMediaUrls(audioUrl: unknown, imageUrls: unknown[]): string | null {
+  const ok = (u: unknown, exts: Set<string>) => isBlobUrl(u) && exts.has(path.extname(new URL(u).pathname).toLowerCase());
+  if (!ok(audioUrl, AUDIO_EXT)) return "Please add your narration audio file (MP3, WAV or M4A).";
+  const count = checkImageCount(imageUrls.length);
+  if (count) return count;
+  if (!imageUrls.every((u) => ok(u, IMAGE_EXT))) return "Images must be JPG, PNG or WebP.";
+  return null;
+}
+
 export async function saveUpload(file: File, dir: string, baseName: string): Promise<string> {
   const p = path.join(dir, `${baseName}${path.extname(file.name).toLowerCase()}`);
   fs.writeFileSync(p, Buffer.from(await file.arrayBuffer()));
@@ -82,12 +113,18 @@ export async function computeTiming(
   workDir: string,
 ): Promise<Timing> {
   // Decode once up front: used for speech detection and by local whisper.
-  const wavPath = await toWav16k(audioPath, workDir);
+  // Best-effort: if ffmpeg isn't available (e.g. trimmed serverless bundle),
+  // OpenAI transcription still works and we just skip the speech-bounds pass.
+  const wavPath = await toWav16k(audioPath, workDir).catch((err) => {
+    if (!process.env.OPENAI_API_KEY) throw err;
+    console.warn("[timing] audio decode for speech detection failed:", err instanceof Error ? err.message : err);
+    return null;
+  });
   const [{ words: recognized, provider }, detected] = await Promise.all([
     transcribeWithTimestamps(audioPath, transcript, workDir),
     detectNiche(transcript),
   ]);
-  const speech = detectSpeechBounds(wavPath);
+  const speech = wavPath ? detectSpeechBounds(wavPath) : null;
   const fileDuration =
     (await getAudioDuration(audioPath)) ?? speech?.duration ?? (recognized.at(-1)?.end ?? 0) + 0.5;
   if (!(fileDuration > 0.5) || (!speech && recognized.length === 0)) {

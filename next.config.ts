@@ -8,7 +8,16 @@ const nextConfig: NextConfig = {
     "@remotion/renderer",
     "@remotion/install-whisper-cpp",
     "@remotion/media-parser",
+    "@remotion/vercel",
+    "@vercel/sandbox",
   ],
+  // Files read at runtime by path, which the tracer can't discover:
+  // the prebuilt Remotion bundle (uploaded into each Vercel Sandbox) and
+  // Remotion's Linux ffmpeg (used for speech detection).
+  outputFileTracingIncludes: {
+    "/api/generate": ["./remotion-build/**/*", "./node_modules/@remotion/compositor-linux-x64-gnu/**/*"],
+    "/api/timing": ["./node_modules/@remotion/compositor-linux-x64-gnu/**/*"],
+  },
 };
 
 export default nextConfig;

@@ -139,4 +139,21 @@ export type GenerateEvent =
       niche: NicheId;
       provider: string;
     }
+  | {
+      /** Vercel: the render continues in a sandbox; poll /api/render-progress with these ids. */
+      type: "detached";
+      sandboxId: string;
+      cmdId: string;
+      durationInSeconds: number;
+      words: number;
+      cues: number;
+      niche: NicheId;
+      provider: string;
+    }
   | { type: "error"; message: string };
+
+/** GET /api/render-progress response. */
+export type RenderStatus =
+  | { state: "running"; message: string; progress: number }
+  | { state: "done"; url: string; downloadUrl: string; size: number }
+  | { state: "error"; message: string };

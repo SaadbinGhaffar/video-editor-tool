@@ -8,18 +8,42 @@ import { UserFacingError } from "./errors";
 const execFileAsync = promisify(execFile);
 
 /**
+ * The ffmpeg binary that ships with Remotion's compositor package for this
+ * platform (e.g. @remotion/compositor-linux-x64-gnu). Called directly rather
+ * than through the Remotion CLI so it also works inside a Vercel Function.
+ */
+function findFfmpeg(): { bin: string; dir: string } | null {
+  const base = path.join(/* turbopackIgnore: true */ process.cwd(), "node_modules", "@remotion");
+  let dirs: string[] = [];
+  try {
+    dirs = fs.readdirSync(base).filter((d) => d.startsWith(`compositor-${process.platform}-${process.arch}`));
+  } catch {
+    return null;
+  }
+  for (const d of dirs) {
+    const dir = path.join(base, d);
+    const bin = path.join(dir, process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg");
+    if (fs.existsSync(bin)) return { bin, dir };
+  }
+  return null;
+}
+
+/**
  * Convert any supported upload to 16 kHz mono 16-bit WAV (what whisper.cpp
- * needs, and easy to analyse), using the ffmpeg that ships with Remotion.
- * Cached per work directory.
+ * needs, and easy to analyse). Cached per work directory.
  */
 export async function toWav16k(audioPath: string, workDir: string): Promise<string> {
   const wavPath = path.join(workDir, "narration-16k.wav");
   if (fs.existsSync(wavPath)) return wavPath;
-  const cli = path.join(process.cwd(), "node_modules", "@remotion", "cli", "remotion-cli.js");
+  const ffmpeg = findFfmpeg();
+  if (!ffmpeg) throw new Error("ffmpeg from @remotion/compositor-* not found");
   try {
-    await execFileAsync(process.execPath, [
-      cli, "ffmpeg", "-y", "-i", audioPath, "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", wavPath,
-    ]);
+    await execFileAsync(
+      ffmpeg.bin,
+      ["-y", "-v", "error", "-i", audioPath, "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", wavPath],
+      // The compositor ships its shared libraries next to the binary.
+      { env: { ...process.env, LD_LIBRARY_PATH: [ffmpeg.dir, process.env.LD_LIBRARY_PATH].filter(Boolean).join(":") } },
+    );
   } catch {
     throw new UserFacingError("Couldn't decode the audio file. Make sure it's a valid MP3, WAV or M4A.");
   }
