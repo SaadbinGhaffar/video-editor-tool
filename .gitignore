@@ -1,0 +1,11 @@
+node_modules
+.next
+.env*.local
+.whisper
+/public/renders/*
+!/public/renders/.gitkeep
+*.tsbuildinfo
+next-env.d.ts
+.remotion-bundle
+.env
+*.log

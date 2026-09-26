@@ -1,0 +1,40 @@
+{
+  "name": "auto-video-editor",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "remotion:studio": "remotion studio remotion/index.ts",
+    "test:align": "tsx scripts/test-align.ts",
+    "setup:whisper": "tsx scripts/setup-whisper.ts",
+    "typecheck": "tsc --noEmit",
+    "test:style": "tsx scripts/test-style.ts",
+    "test": "tsx scripts/test-align.ts && tsx scripts/test-style.ts"
+  },
+  "dependencies": {
+    "@remotion/bundler": "4.0.529",
+    "@remotion/cli": "4.0.529",
+    "@remotion/google-fonts": "4.0.529",
+    "@remotion/install-whisper-cpp": "4.0.529",
+    "@remotion/media-parser": "4.0.529",
+    "@remotion/media-utils": "4.0.529",
+    "@remotion/player": "4.0.529",
+    "@remotion/renderer": "4.0.529",
+    "@remotion/transitions": "4.0.529",
+    "next": "^16.3.6",
+    "openai": "^7.23.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "remotion": "4.0.529",
+    "server-only": "^0.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.3",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3"
+  }
+}

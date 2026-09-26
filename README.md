@@ -1,0 +1,124 @@
+# Auto Video Editor
+
+Upload **narration audio + its transcript + 2–10 images**, click one button, and download a
+**1920×1080 H.264 MP4**. The video has word-timed captions in your exact wording, Ken Burns
+motion on each image, and transitions, colour grading, effects and a caption style matched
+to the **niche** of the narration (fitness, tech, travel, documentary…).
+
+**Preview** (optional) runs only the timing step. It then plays the exact composition
+in-browser with `@remotion/player`, using your local files. Changing the style, the caption
+look, or the image order updates the preview instantly. **Render MP4** reuses the preview's
+timing, so the file matches what you saw.
+
+## Setup
+
+```bash
+npm install
+cp .env.example .env.local   # then set OPENAI_API_KEY (optional, see below)
+npm run build && npm start   # or: npm run dev
+```
+
+Open http://localhost:3000.
+
+### Speech-to-text
+
+Word timing comes from the audio, never from the transcript:
+
+- **OpenAI Whisper** (`whisper-1`, word timestamps) is used when `OPENAI_API_KEY` is set.
+  The transcript is passed as a prompt hint. Upload limit is 25 MB, so use MP3 for long narrations.
+- **Local whisper.cpp** is the fallback when no key is set. Install it once with
+  `npm run setup:whisper`, which downloads the binary plus the `base.en` model (~150 MB)
+  into `.whisper/`. On Linux this compiles whisper.cpp, so it needs `make` and a C compiler.
+
+On the first render, Remotion downloads Chrome Headless Shell (~110 MB) into
+`node_modules/.remotion`. After that it's cached.
+
+## Niche-aware styling
+
+`lib/niche.ts` detects the niche from the transcript's vocabulary. It's an offline keyword
+classifier that gives the same result every time, and the UI shows the words it matched.
+With `OPENAI_API_KEY` set, `lib/niche-llm.ts` asks an LLM instead (model `NICHE_MODEL`,
+default `gpt-4.1-mini`) and falls back to keywords on any error. The user can always
+override the result from the **Style** dropdown.
+
+`lib/style.ts` → `planStyle()` turns the niche into a full style plan. It's a pure,
+seeded function that the browser and server both call, so preview and render always match.
+
+| Niche | Transitions | Look | Captions |
+|---|---|---|---|
+| Tech & AI | glitch, zoom-through, whip, slide | cool tint, contrast, light grain | Space Grotesk, cyan |
+| Travel & nature | fade, zoom-through, slide, iris | warm, vivid, light leaks | Montserrat, yellow |
+| Business & education | push, slide, wipe, fade | clean, minimal | Inter on a panel, boxed word |
+| Fitness & motivation | whip, white flash, zoom, push | high contrast, punch-in on each image | Bebas Neue caps, red |
+| Food & lifestyle | fade, zoom, iris, slide | warm, saturated, soft leaks | Poppins, orange |
+| Gaming & entertainment | glitch, whip, flash, flip | very saturated, purple tint | Bangers caps, boxed green |
+| Documentary & story | dip-to-black, fade, wipe | desaturated sepia, heavy grain, vignette, letterbox | Merriweather serif, gold |
+| General | fade, slide, zoom, wipe | neutral | Montserrat, yellow |
+
+The plan also adapts to the actual inputs:
+
+- **Speaking pace.** Faster speech gets snappier transitions and slower speech gets longer
+  ones, using words per minute from the audio.
+- **Each image.** Its brightness, saturation and shape are measured in the browser.
+  `lib/image-size.ts` reads headers as a server-side fallback and handles EXIF rotation.
+  Dark photos are lifted and dull ones get a little colour back. Portrait or square photos
+  are shown whole over a blurred backdrop instead of being cropped.
+- **Scene length.** Transitions never take more than 40% of the shortest image's time, so
+  10 images on a short clip still work.
+
+The composition is in `remotion/`. The pieces:
+
+- **Transitions:** Remotion's CSS transitions (fade, slide, wipe, flip, iris, push-cut) plus
+  custom CSS ones in `customTransitions.tsx` (zoom-through, whip-pan, glitch, flash,
+  dip-to-black). They don't use WebGL, so they look identical in the preview and the render.
+- **Effects:** `effects.tsx` covers tint, light leaks, vignette, grain and letterbox.
+- **Captions:** seven caption looks in `Captions.tsx`.
+
+`npm run remotion:studio` previews the composition with sample props.
+
+## How it works
+
+`POST /api/timing` handles the preview. It transcribes, aligns, detects the niche and plans
+scenes, then returns JSON; the images stay in the browser. `POST /api/generate` runs the
+full pipeline and streams progress as NDJSON. If the browser sends the preview's `timing`,
+it's validated and reused.
+
+1. **Validate** the audio (MP3/WAV/M4A), the transcript (non-empty) and 2–10 images
+   (JPG/PNG/WebP, ≤ 25 MB each). Each image needs at least ~1.2 s on screen; if there are
+   too many for the narration's length, the error says how many fit.
+2. **Transcribe** with word timestamps (`lib/stt.ts`). Niche detection runs in parallel.
+3. **Find the real speech bounds** from the signal's loudness (`lib/audio.ts`).
+   Recognizers are unreliable at the edges; whisper.cpp stamps the first word at 0 s even
+   after silence. These bounds are used to trim dead air at both ends and to stop the
+   first caption appearing early. A partial transcript never truncates spoken audio.
+4. **Align** (`lib/align.ts`). A Needleman-Wunsch alignment runs between the transcript
+   words and the recognized words. Close matches take the recognizer's timing directly, and
+   unmatched transcript words are spread over the gap between their matched neighbours.
+   Fillers the recognizer heard but the transcript omits ("um") are dropped.
+5. **Group cues** of 1–4 words, breaking on punctuation and pauses, with no lone word left
+   dangling. **Plan scenes** by snapping each cut to a nearby sentence break.
+6. **Render** (`lib/render.ts`). The Remotion bundle is built once per server process into
+   `.remotion-bundle/`, and renders run one at a time. CRF is 20, rising slightly for grainy
+   styles so file sizes stay sensible. Finished MP4s older than 24 h are pruned, and temp
+   files are deleted after each job.
+7. **Serve.** `GET /api/renders/<id>.mp4` streams the result (with Range support).
+   `?download=1` makes it an attachment.
+
+## Tests
+
+```bash
+npm test             # alignment, cue grouping, scene cuts, niche detection, style planning
+npm run typecheck
+```
+
+## Deploying
+
+Rendering launches headless Chromium and ffmpeg, which needs a long-running Node process with
+a few GB of RAM. **This won't work on edge or typical serverless functions.** Deploy to
+Railway, Render, Fly.io or a VPS (`npm run build && npm start`), and make sure any reverse
+proxy allows long requests. On an 8-core laptop, rendering runs at roughly 6–10 frames/s
+depending on the style's effects, so a 30 s clip takes ~2–3 minutes. For concurrent users,
+swap `renderMedia` for Remotion Lambda.
+
+On Linux, Chromium needs the usual shared libraries. See
+https://www.remotion.dev/docs/miscellaneous/linux-dependencies.
