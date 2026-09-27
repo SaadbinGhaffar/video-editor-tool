@@ -1,5 +1,6 @@
 "use client";
 
+import type { RenderBudget } from "@/lib/renderBudget";
 import type { RenderStatus } from "@/lib/types";
 
 export type AppConfig = {
@@ -7,7 +8,13 @@ export type AppConfig = {
   accessKeyRequired: boolean;
   blobConfigured: boolean;
   transcriptionConfigured: boolean;
+  /** Vercel only: the render machine's size and time limit, and the longest video that fits. */
+  renderBudget: RenderBudget | null;
+  maxVideoSeconds: number | null;
 };
+
+/** Give up on a render whose progress hasn't moved for this long. */
+const STALL_MS = 10 * 60 * 1000;
 
 const ACCESS_KEY_STORAGE = "auto-video-editor:access-key";
 
@@ -68,12 +75,15 @@ export async function pollRender(
 ): Promise<Extract<RenderStatus, { state: "done" }>> {
   const qs = new URLSearchParams(ids).toString();
   let failures = 0;
+  let best = -1;
+  let movedAt = Date.now();
   while (true) {
     await new Promise((r) => setTimeout(r, 2500));
     let status: RenderStatus;
     try {
       const res = await fetch(`/api/render-progress?${qs}`, { headers: accessHeaders(accessKey), cache: "no-store" });
       status = (await res.json()) as RenderStatus;
+      if (!status || !["running", "done", "error"].includes(status.state)) throw new Error("bad status");
       failures = 0;
     } catch {
       // Transient network hiccup: keep polling for a while before giving up.
@@ -82,6 +92,12 @@ export async function pollRender(
     }
     if (status.state === "done") return status;
     if (status.state === "error") throw new Error(status.message);
+    if (status.progress > best) {
+      best = status.progress;
+      movedAt = Date.now();
+    } else if (Date.now() - movedAt > STALL_MS) {
+      throw new Error("The render stopped making progress. Please try again with a shorter narration or fewer clips.");
+    }
     onProgress(status.message, status.progress);
   }
 }

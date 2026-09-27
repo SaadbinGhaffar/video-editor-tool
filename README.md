@@ -176,8 +176,16 @@ Setup:
    - `APP_ACCESS_KEY` (strongly recommended: without it, anyone with the URL can run
      renders on your account)
    - `CRON_SECRET` (any random string)
-   - optionally `SANDBOX_VCPUS` (default 4; more is faster and costs more) and `NICHE_MODEL`
+   - optionally `SANDBOX_VCPUS` (default 4) and `SANDBOX_MAX_MINUTES` (default 45), and `NICHE_MODEL`
 4. Redeploy. Sandbox, Blob and OpenAI usage are billed to your accounts.
+
+**Render time limits.** A render runs in one sandbox session, at about 1 frame/s per vCPU
+for 1080p with clips and an effect (a 5-minute video ≈ 35–40 min on 4 vCPUs). The defaults fit
+the **Hobby** plan (max 4 vCPUs, 45-minute sessions), which allows videos up to about
+5 min 20 s; longer ones are refused up front, and the page shows the limit and an estimated
+render time. Hobby also includes only **5 Sandbox CPU-hours a month**, and a 5-minute render
+uses about 2.5 of them. On **Pro**, set `SANDBOX_VCPUS=8` and e.g. `SANDBOX_MAX_MINUTES=120`
+for roughly twice the speed and longer videos (billed at about $0.13 per CPU-hour).
 
 ### Your own server
 

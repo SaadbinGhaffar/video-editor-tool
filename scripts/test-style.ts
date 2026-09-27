@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { detectNicheFromText } from "../lib/niche";
 import { mediaKindOf } from "../lib/media";
+import { estimateRenderMinutes, maxVideoSeconds } from "../lib/renderBudget";
 import { buildVideoProps, encoderCrf, planStyle } from "../lib/style";
 import { FPS, VIDEO_EFFECTS, type Timing } from "../lib/types";
 
@@ -109,6 +110,15 @@ const timing = (images: number, duration = 30, wpm = 150): Timing => ({
   assert.ok(encoderCrf(vhs) > encoderCrf({ ...vhs, effect: "cinematic" }), "grainier look → higher CRF");
   for (const id of VIDEO_EFFECTS) planStyle({ niche: "general", timing: t, imageStats: stats, effect: id });
   console.log("ok  video effects:", VIDEO_EFFECTS.join(", "));
+}
+
+// 5. Render budget (Vercel Sandbox time limits).
+{
+  const hobby = { vcpus: 4, maxMinutes: 45 };
+  assert.ok(maxVideoSeconds(hobby) >= 300, "a 5-minute video fits a Hobby sandbox session");
+  assert.ok(estimateRenderMinutes(maxVideoSeconds(hobby), hobby) < hobby.maxMinutes, "the longest allowed video finishes in time");
+  assert.ok(maxVideoSeconds({ vcpus: 8, maxMinutes: 120 }) > maxVideoSeconds(hobby), "Pro settings allow longer videos");
+  console.log("ok  render budget: up to", maxVideoSeconds(hobby), "s on Hobby");
 }
 
 console.log("all style checks passed");

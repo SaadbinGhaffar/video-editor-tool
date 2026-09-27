@@ -1,6 +1,6 @@
 import { getRenderProgress } from "@remotion/vercel";
 import { denyWithoutAccess } from "@/lib/access";
-import { stopSandbox } from "@/lib/sandbox-render";
+import { renderMachineStopped, stopSandbox } from "@/lib/sandbox-render";
 import type { RenderStatus } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -41,6 +41,13 @@ export async function GET(req: Request) {
       break;
     default:
       status = { state: "running", message: "Starting the renderer…", progress: p.overallProgress };
+  }
+  if (status.state === "running" && (await renderMachineStopped(sandboxId))) {
+    status = {
+      state: "error",
+      message:
+        "The render machine hit its time limit before the video finished. Try a shorter narration, fewer video clips or no video effect.",
+    };
   }
   if (status.state !== "running") await stopSandbox(sandboxId);
   return Response.json(status, { headers: { "Cache-Control": "no-store" } });
