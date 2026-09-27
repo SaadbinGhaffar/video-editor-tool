@@ -2,7 +2,7 @@ import "server-only";
 import fs from "node:fs";
 import path from "node:path";
 import { buildVideoProps, encoderCrf } from "./style";
-import type { SceneMedia, StylePlan, Timing } from "./types";
+import type { StylePlan, Timing } from "./types";
 
 const ENTRY_POINT = path.join(/* turbopackIgnore: true */ process.cwd(), "remotion", "index.ts");
 // Dedicated (empty) public dir for the bundle, so the app's own /public —
@@ -40,8 +40,7 @@ function enqueue<T>(job: () => Promise<T>): Promise<T> {
 
 export type RenderAssets = {
   audioPath: string;
-  /** Images and clips, with `src` a local path. */
-  media: SceneMedia[];
+  imagePaths: string[];
   music: { path: string; volume: number } | null;
 };
 
@@ -78,7 +77,7 @@ export async function renderVideo(
         timing,
         plan,
         rel(assets.audioPath),
-        assets.media.map((m) => ({ ...m, src: rel(m.src) })),
+        assets.imagePaths.map(rel),
         assets.music ? { src: rel(assets.music.path), volume: assets.music.volume } : null,
       );
 

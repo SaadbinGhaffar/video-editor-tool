@@ -44,7 +44,9 @@ export async function toWav16k(audioPath: string, workDir: string): Promise<stri
       // The compositor ships its shared libraries next to the binary.
       { env: { ...process.env, LD_LIBRARY_PATH: [ffmpeg.dir, process.env.LD_LIBRARY_PATH].filter(Boolean).join(":") } },
     );
-  } catch {
+  } catch (err) {
+    const e = err as { code?: unknown; stderr?: unknown; message?: string };
+    console.error("[audio] ffmpeg failed:", e.code, String(e.stderr ?? "").slice(0, 500) || e.message);
     throw new UserFacingError("Couldn't decode the audio file. Make sure it's a valid MP3, WAV or M4A.");
   }
   return wavPath;

@@ -8,7 +8,6 @@ import {
   type MainVideoProps,
   type NicheId,
   type SceneLook,
-  type SceneMedia,
   type StylePlan,
   type Timing,
   type TransitionKind,
@@ -231,7 +230,7 @@ export function buildVideoProps(
   timing: Timing,
   plan: StylePlan,
   audioSrc: string,
-  media: SceneMedia[],
+  imageSrcs: string[],
   music: BackgroundMusic | null = null,
 ): MainVideoProps {
   const { scenes: looks, ...style } = plan;
@@ -241,7 +240,7 @@ export function buildVideoProps(
     audioOffset: timing.audioOffset,
     durationInSeconds: timing.durationInSeconds,
     cues: timing.cues,
-    scenes: timing.scenes.map((s, i) => ({ ...s, ...looks[i], ...media[i] })),
+    scenes: timing.scenes.map((s, i) => ({ ...s, ...looks[i], src: imageSrcs[i] })),
     style,
   };
 }

@@ -45,7 +45,7 @@ const defaultProps: MainVideoProps = buildVideoProps(
   sampleTiming,
   planStyle({ niche: "travel", timing: sampleTiming, imageStats: [null, null, null] }),
   "",
-  [1018, 1015, 1036].map((id) => ({ src: `https://picsum.photos/id/${id}/1920/1080`, kind: "image", duration: null })),
+  [1018, 1015, 1036].map((id) => `https://picsum.photos/id/${id}/1920/1080`),
 );
 
 export const RemotionRoot: React.FC = () => (

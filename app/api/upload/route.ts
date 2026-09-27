@@ -4,7 +4,7 @@ import { checkAccessKey } from "@/lib/access";
 export const runtime = "nodejs";
 
 /**
- * Issues short-lived tokens so the browser can upload audio, images and clips
+ * Issues short-lived tokens so the browser can upload audio and images
  * straight to Vercel Blob (Vercel Functions only accept ~4.5 MB bodies).
  */
 export async function POST(request: Request) {
@@ -29,10 +29,6 @@ export async function POST(request: Request) {
             "image/jpeg",
             "image/png",
             "image/webp",
-            "video/mp4",
-            "video/quicktime",
-            "video/webm",
-            "video/x-m4v",
           ],
           maximumSizeInBytes: 200 * 1024 * 1024,
           addRandomSuffix: true,

@@ -42,7 +42,7 @@ const uploads = new WeakMap<File, Promise<string>>();
 /** Upload a file straight from the browser to Vercel Blob (Vercel mode). Returns its URL. */
 export function uploadToBlob(
   file: File,
-  kind: "audio" | "image" | "video" | "music",
+  kind: "audio" | "image" | "music",
   accessKey: string,
   onProgress?: (loaded: number) => void,
 ): Promise<string> {
@@ -96,7 +96,7 @@ export async function pollRender(
       best = status.progress;
       movedAt = Date.now();
     } else if (Date.now() - movedAt > STALL_MS) {
-      throw new Error("The render stopped making progress. Please try again with a shorter narration or fewer clips.");
+      throw new Error("The render stopped making progress. Please try again with a shorter narration.");
     }
     onProgress(status.message, status.progress);
   }

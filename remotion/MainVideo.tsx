@@ -7,7 +7,6 @@ import { BackgroundMusic } from "./BackgroundMusic";
 import { Captions } from "./Captions";
 import { Effects, LETTERBOX_HEIGHT, Letterbox } from "./effects";
 import { KenBurnsImage } from "./KenBurnsImage";
-import { SceneVideo } from "./SceneVideo";
 import { presentationFor, timingFor } from "./transitions";
 import { EffectLayer, EffectOverlays } from "./videoEffects";
 
@@ -49,23 +48,13 @@ export const MainVideo: React.FC<MainVideoProps> = ({ audioSrc, audioOffset, sce
                   />
                 ) : null}
                 <TransitionSeries.Sequence durationInFrames={lengths[i]}>
-                  {scene.kind === "video" ? (
-                    <SceneVideo
-                      src={resolveSrc(scene.src)}
-                      clipSeconds={scene.duration}
-                      durationInFrames={lengths[i]}
-                      look={scene}
-                      kenBurns={style.kenBurns}
-                    />
-                  ) : (
-                    <KenBurnsImage
-                      src={resolveSrc(scene.src)}
-                      index={i}
-                      durationInFrames={lengths[i]}
-                      look={scene}
-                      kenBurns={style.kenBurns}
-                    />
-                  )}
+                  <KenBurnsImage
+                    src={resolveSrc(scene.src)}
+                    index={i}
+                    durationInFrames={lengths[i]}
+                    look={scene}
+                    kenBurns={style.kenBurns}
+                  />
                 </TransitionSeries.Sequence>
               </Fragment>
             );

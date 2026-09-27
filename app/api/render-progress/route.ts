@@ -46,7 +46,7 @@ export async function GET(req: Request) {
     status = {
       state: "error",
       message:
-        "The render machine hit its time limit before the video finished. Try a shorter narration, fewer video clips or no video effect.",
+        "The render machine hit its time limit before the video finished. Try a shorter narration or no video effect.",
     };
   }
   if (status.state !== "running") await stopSandbox(sandboxId);

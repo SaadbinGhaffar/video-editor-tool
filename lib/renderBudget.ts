@@ -1,8 +1,8 @@
 import { FPS } from "./types";
 
 // Measured on Vercel Sandbox: about 1 frame per second per vCPU for 1080p
-// with video clips and a whole-video effect (4.5–5 fps on 4 vCPUs), so this
-// errs on the slow side. Images-only videos render a little faster.
+// with a heavy whole-video effect (4.5–5 fps on 4 vCPUs), so this
+// errs on the slow side; plain styles render faster.
 const FRAMES_PER_SECOND_PER_VCPU = 1;
 /** Booting the render machine, uploading the template and saving the MP4. */
 const OVERHEAD_MINUTES = 1.5;

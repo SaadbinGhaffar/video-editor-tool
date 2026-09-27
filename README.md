@@ -1,13 +1,9 @@
 # Auto Video Editor
 
-Upload **narration audio + its transcript + 2–10 images or video clips**, click one button,
-and download a **1920×1080 H.264 MP4**. The video has word-timed captions in your exact
-wording, Ken Burns motion on each image, and transitions, colour grading, effects and a
-caption style matched to the **niche** of the narration (fitness, tech, travel, documentary…).
-
-**Video clips** (MP4, MOV or WebM, up to 100 MB each; 5–10 s clips work best) can be mixed
-freely with images. They play muted under the narration. A clip shorter than its slot plays in
-gentle slow motion (down to 0.6×) and then loops; a longer one is cut at the slot's end.
+Upload **narration audio + its transcript + 2–10 images**, click one button, and download a
+**1920×1080 H.264 MP4**. The video has word-timed captions in your exact wording, Ken Burns
+motion on each image, and transitions, colour grading, effects and a caption style matched
+to the **niche** of the narration (fitness, tech, travel, documentary…).
 
 **Video effect** (optional) puts one finishing look over the whole video: **Cinematic**
 (teal-and-orange grade, 2.39:1 bars), **Vintage film** (faded stock, grain, flicker, dust, gate
@@ -107,7 +103,6 @@ The composition is in `remotion/`. The pieces:
   dip-to-black). They don't use WebGL, so they look identical in the preview and the render.
 - **Effects:** `effects.tsx` covers tint, light leaks, vignette, grain and letterbox;
   `videoEffects.tsx` adds the whole-video looks (SVG colour filters, film dust, scanlines).
-- **Clips:** `SceneVideo.tsx` plays each clip with `OffthreadVideo`, slowed or looped to fit.
 - **Captions:** seven caption looks in `Captions.tsx`.
 
 `npm run remotion:studio` previews the composition with sample props.
@@ -120,9 +115,8 @@ full pipeline and streams progress as NDJSON. If the browser sends the preview's
 it's validated and reused.
 
 1. **Validate** the audio (MP3/WAV/M4A), the transcript (non-empty) and 2–10 images
-   (JPG/PNG/WebP, ≤ 25 MB each) or clips (MP4/MOV/M4V/WebM, ≤ 100 MB each). Each needs at
-   least ~1.2 s on screen; if there are too many for the narration's length, the error says
-   how many fit. Clip lengths come from the browser, or are read from the file if missing.
+   (JPG/PNG/WebP, ≤ 25 MB each). Each image needs at least ~1.2 s on screen; if there are
+   too many for the narration's length, the error says how many fit.
 2. **Transcribe** with word timestamps (`lib/stt.ts`). Niche detection runs in parallel.
 3. **Find the real speech bounds** from the signal's loudness (`lib/audio.ts`).
    Recognizers are unreliable at the edges; whisper.cpp stamps the first word at 0 s even
@@ -180,7 +174,7 @@ Setup:
 4. Redeploy. Sandbox, Blob and OpenAI usage are billed to your accounts.
 
 **Render time limits.** A render runs in one sandbox session, at about 1 frame/s per vCPU
-for 1080p with clips and an effect (a 5-minute video ≈ 35–40 min on 4 vCPUs). The defaults fit
+for 1080p with a heavy effect (a 5-minute video ≈ 30–40 min on 4 vCPUs). The defaults fit
 the **Hobby** plan (max 4 vCPUs, 45-minute sessions), which allows videos up to about
 5 min 20 s; longer ones are refused up front, and the page shows the limit and an estimated
 render time. Hobby also includes only **5 Sandbox CPU-hours a month**, and a 5-minute render

@@ -11,12 +11,10 @@ import {
   checkMusic,
   checkTranscript,
   computeTiming,
-  describeMedia,
   downloadBlob,
   isFile,
   isMusicUrl,
   parseCaptionStyle,
-  parseClipDurations,
   parseImageStats,
   parseMusicVolume,
   parseNiche,
@@ -45,11 +43,8 @@ type Job = {
   caption: ReturnType<typeof parseCaptionStyle>;
   effect: ReturnType<typeof parseVideoEffect>;
   imageStats: (ImageStats | null)[];
-  /** Per image/clip, in order: clip length measured in the browser, null for images. */
-  clipDurations: (number | null)[];
   musicVolume: number;
 } & (
-  // "images" carries video clips too.
   | { kind: "upload"; audio: File; images: File[]; music: File | null }
   | { kind: "blob"; audioUrl: string; imageUrls: string[]; musicUrl: string | null }
 );
@@ -79,7 +74,6 @@ async function readJob(req: Request): Promise<Job | Response> {
         caption: parseCaptionStyle(b.captionStyle),
         effect: parseVideoEffect(b.effect),
         imageStats: parseImageStats(JSON.stringify(b.imageStats ?? null), imageUrls.length),
-        clipDurations: parseClipDurations(b.clipDurations, imageUrls.length),
       };
     }
     const form = await req.formData();
@@ -102,7 +96,6 @@ async function readJob(req: Request): Promise<Job | Response> {
       caption: parseCaptionStyle(form.get("captionStyle")),
       effect: parseVideoEffect(form.get("effect")),
       imageStats: parseImageStats(form.get("imageStats") as string | null, images.length),
-      clipDurations: parseClipDurations(form.get("clipDurations"), images.length),
     };
   } catch {
     return badRequest("The upload couldn't be read. Try again, and check the files aren't too large.");
@@ -155,7 +148,7 @@ export async function POST(req: Request) {
             t,
             plan,
             job.audioUrl,
-            await describeMedia(job.imageUrls, job.clipDurations),
+            job.imageUrls,
             job.musicUrl ? { src: job.musicUrl, volume: job.musicVolume } : null,
           );
           const { startSandboxRender } = await import("@/lib/sandbox-render");
@@ -170,7 +163,7 @@ export async function POST(req: Request) {
         pruneOldRenders();
         const audio = await getAudio();
         const imagePaths: string[] = [];
-        for (const [i, img] of job.images.entries()) imagePaths.push(await saveUpload(img, workDir, `media-${i + 1}`));
+        for (const [i, img] of job.images.entries()) imagePaths.push(await saveUpload(img, workDir, `image-${i + 1}`));
         // Without browser-measured stats (e.g. API use), still detect portrait
         // images from their headers so they're shown whole rather than cropped.
         const imageStats = job.imageStats.map((s, i) => {
@@ -182,8 +175,7 @@ export async function POST(req: Request) {
         const music = job.music
           ? { path: await saveUpload(job.music, workDir, "music"), volume: job.musicVolume }
           : null;
-        const media = await describeMedia(imagePaths, job.clipDurations);
-        const output = await renderVideo(jobId, { audioPath: audio, media, music }, t, plan, (stage, progress) => {
+        const output = await renderVideo(jobId, { audioPath: audio, imagePaths, music }, t, plan, (stage, progress) => {
           if (stage === "bundling") {
             send({ type: "progress", stage, message: "Preparing the video renderer (slow the first time)…" });
           } else if (stage === "queued") {
