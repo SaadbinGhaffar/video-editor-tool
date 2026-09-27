@@ -22,6 +22,13 @@ for the whole video. It loops if it's shorter than the video and is trimmed if i
 fades in and out, and automatically dips to 40% while you speak so the voice stays clear.
 Its level has a slider.
 
+**YouTube title & description.** When a render finishes, the page writes an SEO title
+(50–70 characters, main keyword first), a 150+ word description with a call to action and
+hashtags, and search tags, all from your transcript. Each field is editable and has a copy
+button. It uses the configured AI provider (`SEO_MODEL`, default `openai/gpt-oss-120b` on Groq
+or `gpt-4.1-mini` on OpenAI) and falls back to a simple offline version without a key
+(`lib/seo.ts`, `lib/seoText.ts`).
+
 **Captions** come in 8 styles, shown in the page as live samples in their real fonts:
 
 | Style | Font |

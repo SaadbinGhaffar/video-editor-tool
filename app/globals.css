@@ -405,3 +405,34 @@ input.text {
 .style-single select {
   max-width: 420px;
 }
+
+.seo {
+  margin-top: 24px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+
+.seo h3 {
+  font-size: 1rem;
+  margin: 0 0 12px;
+}
+
+.seo-field {
+  margin-bottom: 16px;
+}
+
+.seo-field-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+
+.seo-field-head label {
+  font-weight: 600;
+}
+
+.seo input.text {
+  max-width: none;
+}

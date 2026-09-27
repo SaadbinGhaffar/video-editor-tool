@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { detectNicheFromText } from "../lib/niche";
 import { estimateRenderMinutes } from "../lib/renderBudget";
+import { basicSeo, cleanSeo, TITLE_MAX } from "../lib/seoText";
 import { buildVideoProps, encoderCrf, planStyle } from "../lib/style";
 import { FPS, VIDEO_EFFECTS, type Timing } from "../lib/types";
 
@@ -102,6 +103,31 @@ const timing = (images: number, duration = 30, wpm = 150): Timing => ({
   assert.ok(estimateRenderMinutes(60, { ...hobby, vcpus: 8 }) < estimateRenderMinutes(60, hobby), "more vCPUs render faster");
   assert.ok(estimateRenderMinutes(300, hobby) > estimateRenderMinutes(60, hobby), "longer videos take longer");
   console.log("ok  render estimate: 5 min video ≈", Math.round(estimateRenderMinutes(300, hobby)), "min on 4 vCPUs");
+}
+
+// 5. YouTube title/description helpers.
+{
+  const clean = cleanSeo({
+    title: "“Automatic Video Editor Test: Captions, Pan‑and‑Zoom Demo”",
+    description: "Discover how the automatic video editor adds captions.\n\n\n\nLike and subscribe for more.",
+    hashtags: ["#videoeditor", "auto captions", "videoeditor"],
+    tags: ["Video Editor", "video editor", "captions"],
+  })!;
+  assert.equal(clean.title, 'Automatic Video Editor Test: Captions, Pan-and-Zoom Demo"'.replace(/"$/, ""));
+  assert.ok(clean.description.endsWith("#videoeditor #autocaptions"), "hashtags appended once, deduplicated");
+  assert.ok(!clean.description.includes("\n\n\n"), "blank-line runs collapsed");
+  assert.deepEqual(clean.tags, ["video editor", "captions"]);
+  assert.equal(cleanSeo({ title: "x" }), null, "unusable reply is rejected");
+  assert.ok(cleanSeo({ title: "a".repeat(150), description: "b ".repeat(40) })!.title.length <= TITLE_MAX);
+
+  const basic = basicSeo(
+    "Hi, I'm John Smith, and um, today we are testing the automatic video editor. It listens to the narration and puts captions on screen. The editor animates each photo.",
+    "tech",
+  );
+  assert.equal(basic.source, "basic");
+  assert.ok(basic.title.startsWith("Hi, I'm John Smith, and today we are testing") && basic.title.length <= 70);
+  assert.ok(basic.tags.includes("editor") && basic.description.includes("#tech"));
+  console.log("ok  seo helpers:", basic.title);
 }
 
 console.log("all style checks passed");

@@ -140,6 +140,16 @@ export type BackgroundMusic = {
 
 export const DEFAULT_MUSIC_VOLUME = 0.3;
 
+/** YouTube metadata written from the transcript once a video is rendered. */
+export type SeoPack = {
+  title: string;
+  /** Plain text, paragraphs separated by blank lines, ending with a hashtag line. */
+  description: string;
+  tags: string[];
+  /** "llm" when an AI model wrote it; "basic" is the offline fallback. */
+  source: "llm" | "basic";
+};
+
 export type PipelineStage = "upload" | "transcribing" | "bundling" | "queued" | "rendering";
 
 /** Newline-delimited JSON events streamed by POST /api/generate. */

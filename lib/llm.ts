@@ -10,6 +10,8 @@ export type AiProvider = {
   envVar: "OPENAI_API_KEY" | "GROQ_API_KEY";
   sttModel: string;
   chatModel: string;
+  /** Writes the YouTube title/description; worth a stronger model than niche detection. */
+  seoModel: string;
   client: (options?: ClientOptions) => OpenAI;
 };
 
@@ -20,6 +22,7 @@ export function aiProvider(): AiProvider | null {
       envVar: "OPENAI_API_KEY",
       sttModel: "whisper-1",
       chatModel: process.env.NICHE_MODEL || "gpt-4.1-mini",
+      seoModel: process.env.SEO_MODEL || "gpt-4.1-mini",
       client: (options) => new OpenAI(options),
     };
   }
@@ -29,6 +32,7 @@ export function aiProvider(): AiProvider | null {
       envVar: "GROQ_API_KEY",
       sttModel: "whisper-large-v3-turbo",
       chatModel: process.env.NICHE_MODEL || "qwen/qwen3.8-27b",
+      seoModel: process.env.SEO_MODEL || "openai/gpt-oss-120b",
       client: (options) =>
         new OpenAI({ apiKey: process.env.GROQ_API_KEY, baseURL: "https://api.groq.com/openai/v1", ...options }),
     };

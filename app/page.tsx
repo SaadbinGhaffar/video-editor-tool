@@ -23,6 +23,7 @@ import { effectLook } from "@/lib/videoEffects";
 import { CaptionStylePicker } from "./CaptionStylePicker";
 import { ImageGallery, type ImageItem } from "./ImageGallery";
 import { MusicInput, type MusicChoice } from "./MusicInput";
+import { SeoPanel } from "./SeoPanel";
 import { measureImage } from "./imageStats";
 import { accessHeaders, loadAccessKey, pollRender, saveAccessKey, uploadToBlob, type AppConfig } from "./transport";
 
@@ -32,7 +33,8 @@ const PreviewPlayer = dynamic(() => import("./PreviewPlayer"), {
   loading: () => <div className="player-placeholder">Loading preview…</div>,
 });
 
-type Done = Extract<GenerateEvent, { type: "done" }>;
+/** A finished render, with the transcript it was made from (for the SEO text). */
+type Done = Extract<GenerateEvent, { type: "done" }> & { transcript: string };
 type Busy = null | "preview" | "render";
 
 const STEPS: { stage: PipelineStage; label: string }[] = [
@@ -241,6 +243,7 @@ export default function Home() {
     if (!checkInputs() || !audio) return;
     setResult(null);
     begin("render", "Uploading files…");
+    const renderedTranscript = transcript;
 
     const style = {
       niche: nicheChoice,
@@ -295,7 +298,7 @@ export default function Home() {
             setMessage(ev.message);
             setProgress(ev.stage === "rendering" ? (ev.progress ?? 0) : null);
           } else if (ev.type === "done") {
-            setResult(ev);
+            setResult({ ...ev, transcript: renderedTranscript });
             finished = true;
           } else if (ev.type === "detached") {
             // Vercel: the render runs on in a sandbox; follow it by polling.
@@ -307,7 +310,7 @@ export default function Home() {
               setMessage(msg);
               setProgress(p);
             });
-            setResult({ type: "done", url: out.url, downloadUrl: out.downloadUrl, ...meta });
+            setResult({ type: "done", url: out.url, downloadUrl: out.downloadUrl, ...meta, transcript: renderedTranscript });
             finished = true;
           } else {
             throw new Error(ev.message);
@@ -571,6 +574,13 @@ export default function Home() {
             {NICHE_LABELS[result.niche]} style · {formatTime(Math.round(result.durationInSeconds))} · {result.words}{" "}
             words · {result.cues} captions
           </span>
+          <SeoPanel
+            key={result.url}
+            transcript={result.transcript}
+            niche={result.niche}
+            durationInSeconds={result.durationInSeconds}
+            accessKey={accessKey}
+          />
         </section>
       ) : null}
     </main>
