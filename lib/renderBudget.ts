@@ -6,8 +6,6 @@ import { FPS } from "./types";
 const FRAMES_PER_SECOND_PER_VCPU = 1;
 /** Booting the render machine, uploading the template and saving the MP4. */
 const OVERHEAD_MINUTES = 1.5;
-/** Leave this much of the session unused, so the render never races the hard stop. */
-const SAFETY_MINUTES = 3.5;
 
 export type RenderBudget = { vcpus: number; maxMinutes: number };
 
@@ -27,8 +25,3 @@ export function estimateRenderMinutes(durationInSeconds: number, budget: RenderB
   return frames / (budget.vcpus * FRAMES_PER_SECOND_PER_VCPU) / 60 + OVERHEAD_MINUTES;
 }
 
-/** Longest video (in seconds) that reliably finishes within one sandbox session. */
-export function maxVideoSeconds(budget: RenderBudget): number {
-  const renderMinutes = budget.maxMinutes - OVERHEAD_MINUTES - SAFETY_MINUTES;
-  return Math.max(0, Math.floor((renderMinutes * 60 * budget.vcpus * FRAMES_PER_SECOND_PER_VCPU) / FPS));
-}

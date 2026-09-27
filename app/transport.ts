@@ -8,9 +8,8 @@ export type AppConfig = {
   accessKeyRequired: boolean;
   blobConfigured: boolean;
   transcriptionConfigured: boolean;
-  /** Vercel only: the render machine's size and time limit, and the longest video that fits. */
+  /** Vercel only: the render machine's size, used to estimate render time. */
   renderBudget: RenderBudget | null;
-  maxVideoSeconds: number | null;
 };
 
 /** Give up on a render whose progress hasn't moved for this long. */

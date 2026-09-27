@@ -175,9 +175,8 @@ Setup:
 
 **Render time limits.** A render runs in one sandbox session, at about 1 frame/s per vCPU
 for 1080p with a heavy effect (a 5-minute video ≈ 30–40 min on 4 vCPUs). The defaults fit
-the **Hobby** plan (max 4 vCPUs, 45-minute sessions), which allows videos up to about
-5 min 20 s; longer ones are refused up front, and the page shows the limit and an estimated
-render time. Hobby also includes only **5 Sandbox CPU-hours a month**, and a 5-minute render
+the **Hobby** plan (max 4 vCPUs, 45-minute sessions); a render still running when Vercel ends
+the session fails with a clear error. The page shows an estimated render time. Hobby also includes only **5 Sandbox CPU-hours a month**, and a 5-minute render
 uses about 2.5 of them. On **Pro**, set `SANDBOX_VCPUS=8` and e.g. `SANDBOX_MAX_MINUTES=120`
 for roughly twice the speed and longer videos (billed at about $0.13 per CPU-hour).
 

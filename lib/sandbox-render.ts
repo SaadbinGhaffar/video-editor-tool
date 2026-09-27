@@ -5,7 +5,7 @@ import { head, put } from "@vercel/blob";
 import { Sandbox } from "@vercel/sandbox";
 import { VERSION } from "remotion/version";
 import { UserFacingError } from "./errors";
-import { estimateRenderMinutes, maxVideoSeconds, SANDBOX_BUDGET } from "./renderBudget";
+import { SANDBOX_BUDGET } from "./renderBudget";
 import { encoderCrf } from "./style";
 import type { MainVideoProps, StylePlan } from "./types";
 
@@ -96,16 +96,6 @@ export async function startSandboxRender(
   onProgress: SetupProgress,
 ): Promise<{ sandboxId: string; cmdId: string }> {
   const token = blobToken();
-  // Refuse up front what can't finish in one session, rather than rendering
-  // until the sandbox is killed (and spending the plan's CPU allowance on it).
-  const limit = maxVideoSeconds(SANDBOX_BUDGET);
-  if (inputProps.durationInSeconds > limit) {
-    const minutes = Math.round(estimateRenderMinutes(inputProps.durationInSeconds, SANDBOX_BUDGET));
-    throw new UserFacingError(
-      `This ${formatLength(inputProps.durationInSeconds)} video would take about ${minutes} minutes to render, longer than the render machine's ${SANDBOX_BUDGET.maxMinutes}-minute limit. Keep the narration under ${formatLength(limit)}, or raise the limit (Vercel Pro: SANDBOX_VCPUS=8 and a higher SANDBOX_MAX_MINUTES).`,
-    );
-  }
-
   let sandbox: Sandbox;
   try {
     sandbox = await getSandbox(onProgress);
@@ -147,9 +137,6 @@ export async function startSandboxRender(
   });
   return { sandboxId, cmdId };
 }
-
-const formatLength = (seconds: number) =>
-  seconds >= 60 ? `${Math.floor(seconds / 60)} min ${Math.round(seconds % 60)} s` : `${Math.round(seconds)} s`;
 
 /**
  * Whether a render's sandbox is gone (stopped at its time limit, failed, or

@@ -1,7 +1,7 @@
 // Checks for niche detection and the style planner: `npm run test:style`
 import assert from "node:assert/strict";
 import { detectNicheFromText } from "../lib/niche";
-import { estimateRenderMinutes, maxVideoSeconds } from "../lib/renderBudget";
+import { estimateRenderMinutes } from "../lib/renderBudget";
 import { buildVideoProps, encoderCrf, planStyle } from "../lib/style";
 import { FPS, VIDEO_EFFECTS, type Timing } from "../lib/types";
 
@@ -96,13 +96,12 @@ const timing = (images: number, duration = 30, wpm = 150): Timing => ({
   console.log("ok  video effects:", VIDEO_EFFECTS.join(", "));
 }
 
-// 4. Render budget (Vercel Sandbox time limits).
+// 4. Render time estimate.
 {
   const hobby = { vcpus: 4, maxMinutes: 45 };
-  assert.ok(maxVideoSeconds(hobby) >= 300, "a 5-minute video fits a Hobby sandbox session");
-  assert.ok(estimateRenderMinutes(maxVideoSeconds(hobby), hobby) < hobby.maxMinutes, "the longest allowed video finishes in time");
-  assert.ok(maxVideoSeconds({ vcpus: 8, maxMinutes: 120 }) > maxVideoSeconds(hobby), "Pro settings allow longer videos");
-  console.log("ok  render budget: up to", maxVideoSeconds(hobby), "s on Hobby");
+  assert.ok(estimateRenderMinutes(60, { ...hobby, vcpus: 8 }) < estimateRenderMinutes(60, hobby), "more vCPUs render faster");
+  assert.ok(estimateRenderMinutes(300, hobby) > estimateRenderMinutes(60, hobby), "longer videos take longer");
+  console.log("ok  render estimate: 5 min video ≈", Math.round(estimateRenderMinutes(300, hobby)), "min on 4 vCPUs");
 }
 
 console.log("all style checks passed");

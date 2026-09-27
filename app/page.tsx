@@ -85,8 +85,7 @@ export default function Home() {
 
   const currentKey = timingKey(audio?.file ?? null, transcript, images.length);
   const freshTiming = timing && timing.key === currentKey ? timing.value : null;
-  // Vercel: render machines have a time limit, so long videos are refused and render time is estimated.
-  const tooLong = !!(freshTiming && config?.maxVideoSeconds && freshTiming.durationInSeconds > config.maxVideoSeconds);
+  // Vercel: estimated render time for the current video.
   const renderMinutes =
     freshTiming && config?.renderBudget
       ? Math.max(1, Math.round(estimateRenderMinutes(freshTiming.durationInSeconds, config.renderBudget)))
@@ -240,12 +239,6 @@ export default function Home() {
   async function onRender(e: React.FormEvent) {
     e.preventDefault();
     if (!checkInputs() || !audio) return;
-    if (tooLong && config?.maxVideoSeconds) {
-      setError(
-        `This video is ${formatTime(Math.round(freshTiming!.durationInSeconds))} long; this deployment can render up to ${formatTime(config.maxVideoSeconds)}. Use a shorter narration.`,
-      );
-      return;
-    }
     setResult(null);
     begin("render", "Uploading files…");
 
@@ -399,10 +392,7 @@ export default function Home() {
             onChange={(e) => chooseAudio(e.target.files?.[0] ?? null)}
             disabled={!!busy}
           />
-          <p className="hint">
-            MP3, WAV or M4A. Silence at the start and end is trimmed automatically.
-            {config?.maxVideoSeconds ? ` Videos can be up to ${formatTime(config.maxVideoSeconds)} long here.` : ""}
-          </p>
+          <p className="hint">MP3, WAV or M4A. Silence at the start and end is trimmed automatically.</p>
         </div>
 
         <div className="field">
@@ -511,9 +501,6 @@ export default function Home() {
         <p className="hint">
           Preview plays in your browser in a few seconds. Render makes the downloadable file
           {renderMinutes ? ` (up to about ${renderMinutes} min for this video).` : " (a minute or more)."}
-          {tooLong && config?.maxVideoSeconds
-            ? ` This video is longer than the ${formatTime(config.maxVideoSeconds)} this deployment can render; shorten the narration.`
-            : ""}
         </p>
 
         {busy === "preview" ? (
