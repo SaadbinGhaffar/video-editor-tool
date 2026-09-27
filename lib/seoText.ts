@@ -55,16 +55,30 @@ export function cleanSeo(raw: unknown): Omit<SeoPack, "source"> | null {
   if (!raw || typeof raw !== "object") return null;
   const r = raw as Record<string, unknown>;
   const title = typeof r.title === "string" ? clip(tidy(r.title).replace(/^["']|["']$/g, ""), TITLE_MAX) : "";
-  let description = typeof r.description === "string" ? tidy(r.description) : "";
-  if (!title || description.length < 40) return null;
+  const body = typeof r.description === "string" ? stripTrailingTagLines(tidy(r.description)) : "";
+  if (!title || body.length < 40) return null;
 
-  const tags = uniqueStrings(r.tags).map((t) => tidy(t).toLowerCase().replace(/[<>,]/g, "")).filter(Boolean);
+  const tags = fitTags(uniqueStrings(r.tags).map((t) => tidy(t).toLowerCase().replace(/[<>,]/g, "")).filter(Boolean));
   const rawHashtags = Array.isArray(r.hashtags) ? r.hashtags : [];
   const hashtags = uniqueStrings(rawHashtags.map((h) => (typeof h === "string" ? hashtag(h) : h))).slice(0, 5);
-  if (hashtags.length && !/(^|\s)#\p{L}/u.test(description)) {
-    description += `\n\n${hashtags.map((h) => `#${h}`).join(" ")}`;
-  }
-  return { title, description: clip(description, DESCRIPTION_MAX), tags: fitTags(tags) };
+  return { title, description: composeDescription(body, tags, hashtags), tags };
+}
+
+/** The description ends with the tags and then the hashtags, so both go wherever it's pasted. */
+function composeDescription(body: string, tags: string[], hashtags: string[]): string {
+  const parts = [body];
+  if (tags.length) parts.push(`Tags: ${tags.join(", ")}`);
+  if (hashtags.length) parts.push(hashtags.map((h) => `#${h}`).join(" "));
+  // Trim the body, never the tag and hashtag lines, if it's over YouTube's limit.
+  const tail = parts.slice(1).join("\n\n");
+  return [clip(body, DESCRIPTION_MAX - tail.length - 2), tail].filter(Boolean).join("\n\n");
+}
+
+/** Drop hashtag-only or "Tags:" lines the model added at the end anyway (they're re-added in a fixed format). */
+function stripTrailingTagLines(text: string): string {
+  const lines = text.split("\n");
+  while (lines.length && /^\s*(tags\s*:.*|(#[\p{L}\p{N}_]+[\s,]*)+)?\s*$/iu.test(lines[lines.length - 1])) lines.pop();
+  return lines.join("\n").trim();
 }
 
 function uniqueStrings(v: unknown): string[] {
@@ -117,11 +131,10 @@ export function basicSeo(transcript: string, niche: NicheId): SeoPack {
   const tags = fitTags([...(niche === "general" ? [] : [label]), ...keywords]);
 
   const summary = sentences.slice(0, 4).join(" ");
-  const hashtags = [...NICHE_HASHTAGS[niche], ...keywords.slice(0, 2)].slice(0, 5).map(hashtag);
-  const description = [
+  const hashtags = [...new Set([...NICHE_HASHTAGS[niche], ...keywords.slice(0, 2)].map(hashtag))].slice(0, 5);
+  const body = [
     summary || tidy(transcript),
     "If you enjoyed this video, like it, subscribe for more, and tell us what you think in the comments.",
-    hashtags.map((h) => `#${h}`).join(" "),
   ].join("\n\n");
-  return { title, description: clip(description, DESCRIPTION_MAX), tags, source: "basic" };
+  return { title, description: composeDescription(body, tags, hashtags), tags, source: "basic" };
 }

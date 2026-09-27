@@ -109,12 +109,15 @@ const timing = (images: number, duration = 30, wpm = 150): Timing => ({
 {
   const clean = cleanSeo({
     title: "“Automatic Video Editor Test: Captions, Pan‑and‑Zoom Demo”",
-    description: "Discover how the automatic video editor adds captions.\n\n\n\nLike and subscribe for more.",
+    description: "Discover how the automatic video editor adds captions.\n\n\n\nLike and subscribe for more.\n\n#old #hashtags",
     hashtags: ["#videoeditor", "auto captions", "videoeditor"],
     tags: ["Video Editor", "video editor", "captions"],
   })!;
   assert.equal(clean.title, 'Automatic Video Editor Test: Captions, Pan-and-Zoom Demo"'.replace(/"$/, ""));
-  assert.ok(clean.description.endsWith("#videoeditor #autocaptions"), "hashtags appended once, deduplicated");
+  assert.ok(
+    clean.description.endsWith("Like and subscribe for more.\n\nTags: video editor, captions\n\n#videoeditor #autocaptions"),
+    "description ends with the tags, then the deduplicated hashtags (the model's own hashtag line replaced)",
+  );
   assert.ok(!clean.description.includes("\n\n\n"), "blank-line runs collapsed");
   assert.deepEqual(clean.tags, ["video editor", "captions"]);
   assert.equal(cleanSeo({ title: "x" }), null, "unusable reply is rejected");
@@ -126,7 +129,7 @@ const timing = (images: number, duration = 30, wpm = 150): Timing => ({
   );
   assert.equal(basic.source, "basic");
   assert.ok(basic.title.startsWith("Hi, I'm John Smith, and today we are testing") && basic.title.length <= 70);
-  assert.ok(basic.tags.includes("editor") && basic.description.includes("#tech"));
+  assert.ok(basic.tags.includes("editor") && basic.description.includes("\n\nTags: ") && basic.description.includes("#tech"));
   console.log("ok  seo helpers:", basic.title);
 }
 
