@@ -1,8 +1,8 @@
 import "server-only";
 import fs from "node:fs";
 import path from "node:path";
-import { buildVideoProps } from "./style";
-import type { StylePlan, Timing } from "./types";
+import { buildVideoProps, encoderCrf } from "./style";
+import type { SceneMedia, StylePlan, Timing } from "./types";
 
 const ENTRY_POINT = path.join(/* turbopackIgnore: true */ process.cwd(), "remotion", "index.ts");
 // Dedicated (empty) public dir for the bundle, so the app's own /public —
@@ -40,7 +40,8 @@ function enqueue<T>(job: () => Promise<T>): Promise<T> {
 
 export type RenderAssets = {
   audioPath: string;
-  imagePaths: string[];
+  /** Images and clips, with `src` a local path. */
+  media: SceneMedia[];
   music: { path: string; volume: number } | null;
 };
 
@@ -77,7 +78,7 @@ export async function renderVideo(
         timing,
         plan,
         rel(assets.audioPath),
-        assets.imagePaths.map(rel),
+        assets.media.map((m) => ({ ...m, src: rel(m.src) })),
         assets.music ? { src: rel(assets.music.path), volume: assets.music.volume } : null,
       );
 
@@ -94,11 +95,7 @@ export async function renderVideo(
         audioCodec: "aac",
         pixelFormat: "yuv420p",
         colorSpace: "bt709",
-        // Slow-moving photos compress well; CRF 20 keeps them clean at a
-        // fraction of the default size. Film grain is noise the encoder has
-        // to spend bits on, so grainy styles get a slightly higher CRF
-        // (invisible under the grain) to keep downloads a sensible size.
-        crf: Math.min(24, 20 + Math.round(plan.effects.grain * 40)),
+        crf: encoderCrf(plan),
         x264Preset: "medium",
         jpegQuality: 90,
         outputLocation,

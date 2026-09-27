@@ -2,11 +2,14 @@ import { TransitionSeries } from "@remotion/transitions";
 import { Fragment } from "react";
 import { AbsoluteFill, Audio, staticFile, useVideoConfig } from "remotion";
 import type { MainVideoProps } from "../lib/types";
+import { effectLook } from "../lib/videoEffects";
 import { BackgroundMusic } from "./BackgroundMusic";
 import { Captions } from "./Captions";
 import { Effects, LETTERBOX_HEIGHT, Letterbox } from "./effects";
 import { KenBurnsImage } from "./KenBurnsImage";
+import { SceneVideo } from "./SceneVideo";
 import { presentationFor, timingFor } from "./transitions";
+import { EffectLayer, EffectOverlays } from "./videoEffects";
 
 /** Remote/blob URLs pass through; anything else is a path in the bundle's public dir. */
 const resolveSrc = (src: string) => (/^(https?:|data:|blob:)/.test(src) ? src : staticFile(src));
@@ -28,36 +31,50 @@ export const MainVideo: React.FC<MainVideoProps> = ({ audioSrc, audioOffset, sce
     return Math.max(transition + 1, to - from);
   });
 
-  const captionBottom = style.effects.letterbox ? LETTERBOX_HEIGHT + 90 : 130;
+  const letterbox = effectLook(style.effect)?.letterbox || (style.effects.letterbox ? LETTERBOX_HEIGHT : 0);
+  const captionBottom = letterbox ? letterbox + 90 : 130;
 
   return (
     <AbsoluteFill style={{ backgroundColor: "black" }}>
-      <TransitionSeries>
-        {scenes.map((scene, i) => {
-          const kind = style.transitions[i - 1] ?? "fade";
-          return (
-            <Fragment key={i}>
-              {i > 0 ? (
-                <TransitionSeries.Transition
-                  presentation={presentationFor(kind, i - 1)}
-                  timing={timingFor(kind, transition)}
-                />
-              ) : null}
-              <TransitionSeries.Sequence durationInFrames={lengths[i]}>
-                <KenBurnsImage
-                  src={resolveSrc(scene.src)}
-                  index={i}
-                  durationInFrames={lengths[i]}
-                  look={scene}
-                  kenBurns={style.kenBurns}
-                />
-              </TransitionSeries.Sequence>
-            </Fragment>
-          );
-        })}
-      </TransitionSeries>
+      <EffectLayer effect={style.effect}>
+        <TransitionSeries>
+          {scenes.map((scene, i) => {
+            const kind = style.transitions[i - 1] ?? "fade";
+            return (
+              <Fragment key={i}>
+                {i > 0 ? (
+                  <TransitionSeries.Transition
+                    presentation={presentationFor(kind, i - 1)}
+                    timing={timingFor(kind, transition)}
+                  />
+                ) : null}
+                <TransitionSeries.Sequence durationInFrames={lengths[i]}>
+                  {scene.kind === "video" ? (
+                    <SceneVideo
+                      src={resolveSrc(scene.src)}
+                      clipSeconds={scene.duration}
+                      durationInFrames={lengths[i]}
+                      look={scene}
+                      kenBurns={style.kenBurns}
+                    />
+                  ) : (
+                    <KenBurnsImage
+                      src={resolveSrc(scene.src)}
+                      index={i}
+                      durationInFrames={lengths[i]}
+                      look={scene}
+                      kenBurns={style.kenBurns}
+                    />
+                  )}
+                </TransitionSeries.Sequence>
+              </Fragment>
+            );
+          })}
+        </TransitionSeries>
+      </EffectLayer>
       <Effects effects={style.effects} cutFrames={cuts.slice(1, -1)} />
-      {style.effects.letterbox ? <Letterbox /> : null}
+      <EffectOverlays effect={style.effect} cutFrames={cuts.slice(1, -1)} />
+      {letterbox ? <Letterbox height={letterbox} /> : null}
       <Captions cues={cues} styleId={style.caption} bottom={captionBottom} />
       {audioSrc ? <Audio src={resolveSrc(audioSrc)} trimBefore={Math.round(audioOffset * fps)} /> : null}
       {music ? <BackgroundMusic music={music} cues={cues} resolve={resolveSrc} /> : null}

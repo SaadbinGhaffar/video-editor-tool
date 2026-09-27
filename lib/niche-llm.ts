@@ -1,22 +1,26 @@
 import "server-only";
-import OpenAI from "openai";
+import { aiProvider } from "./llm";
 import { detectNicheFromText, NICHE_LABELS } from "./niche";
 import { NICHES, type NicheDetection, type NicheId } from "./types";
 
 /**
- * Niche detection. Uses an LLM when OPENAI_API_KEY is set (better at subtle
+ * Niche detection. Uses an LLM when OPENAI_API_KEY or GROQ_API_KEY is set (better at subtle
  * topics), and the offline keyword classifier otherwise — or if the LLM call
  * fails for any reason, so this never blocks a render.
  */
 export async function detectNiche(transcript: string): Promise<NicheDetection> {
   const fallback = detectNicheFromText(transcript);
-  if (!process.env.OPENAI_API_KEY) return fallback;
+  const provider = aiProvider();
+  if (!provider) return fallback;
 
   try {
-    const client = new OpenAI({ timeout: 15_000, maxRetries: 1 });
+    const client = provider.client({ timeout: 15_000, maxRetries: 1 });
     const options = NICHES.map((n) => `${n} (${NICHE_LABELS[n]})`).join(", ");
     const res = await client.chat.completions.create({
-      model: process.env.NICHE_MODEL || "gpt-4.1-mini",
+      model: provider.chatModel,
+      // The reply is ~40 tokens. Without a cap, providers reserve their default
+      // output budget, which alone exceeds Groq's free-tier per-minute limit.
+      max_completion_tokens: 150,
       response_format: { type: "json_object" },
       messages: [
         {

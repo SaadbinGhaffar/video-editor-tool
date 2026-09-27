@@ -8,22 +8,22 @@ export const Effects: React.FC<{ effects: StylePlan["effects"]; cutFrames: numbe
   <>
     {effects.tint ? <AbsoluteFill style={{ backgroundColor: effects.tint, mixBlendMode: "soft-light" }} /> : null}
     {effects.lightLeak > 0 ? <LightLeak strength={effects.lightLeak} cutFrames={cutFrames} /> : null}
-    {effects.vignette > 0 ? (
-      <AbsoluteFill
-        style={{
-          background: `radial-gradient(ellipse at center, rgba(0,0,0,0) 52%, rgba(0,0,0,${effects.vignette}) 100%)`,
-        }}
-      />
-    ) : null}
+    {effects.vignette > 0 ? <Vignette strength={effects.vignette} /> : null}
     {effects.grain > 0 ? <Grain amount={effects.grain} /> : null}
   </>
 );
 
+export const Vignette: React.FC<{ strength: number }> = ({ strength }) => (
+  <AbsoluteFill
+    style={{ background: `radial-gradient(ellipse at center, rgba(0,0,0,0) 52%, rgba(0,0,0,${strength}) 100%)` }}
+  />
+);
+
 /** Cinematic bars; drawn above the image but below captions. */
-export const Letterbox: React.FC = () => (
+export const Letterbox: React.FC<{ height: number }> = ({ height }) => (
   <AbsoluteFill style={{ pointerEvents: "none" }}>
-    <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: LETTERBOX_HEIGHT, background: "black" }} />
-    <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: LETTERBOX_HEIGHT, background: "black" }} />
+    <div style={{ position: "absolute", top: 0, left: 0, right: 0, height, background: "black" }} />
+    <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height, background: "black" }} />
   </AbsoluteFill>
 );
 
@@ -51,7 +51,7 @@ function getNoiseTile(): string {
 }
 
 /** Film grain: a noise tile jumping to a new random offset every other frame. */
-const Grain: React.FC<{ amount: number }> = ({ amount }) => {
+export const Grain: React.FC<{ amount: number }> = ({ amount }) => {
   const frame = useCurrentFrame();
   const step = Math.floor(frame / 2);
   const x = Math.floor(random(`gx-${step}`) * 256);
@@ -73,7 +73,7 @@ const Grain: React.FC<{ amount: number }> = ({ amount }) => {
  * Warm light leaks drifting across the frame, flaring up around each cut
  * (a common travel/lifestyle look).
  */
-const LightLeak: React.FC<{ strength: number; cutFrames: number[] }> = ({ strength, cutFrames }) => {
+export const LightLeak: React.FC<{ strength: number; cutFrames: number[] }> = ({ strength, cutFrames }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const nearest = cutFrames.reduce((d, c) => Math.min(d, Math.abs(frame - c)), Infinity);

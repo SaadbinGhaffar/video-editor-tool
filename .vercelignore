@@ -1,0 +1,13 @@
+# Keep local-only files out of `vercel deploy` uploads (mirrors .gitignore).
+node_modules
+.next
+.env
+.env*.local
+.whisper
+.remotion-bundle
+remotion-build
+public/renders/*
+!public/renders/.gitkeep
+*.tsbuildinfo
+next-env.d.ts
+*.log

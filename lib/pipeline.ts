@@ -4,6 +4,8 @@ import path from "node:path";
 import { alignTranscript, groupIntoCues, planSceneBoundaries, tokenizeTranscript } from "./align";
 import { detectSpeechBounds, toWav16k } from "./audio";
 import { isBlobUrl } from "./deploy";
+import { aiProvider } from "./llm";
+import { IMAGE_EXTENSIONS, mediaKindOf } from "./media";
 import { detectNiche } from "./niche-llm";
 import { transcribeWithTimestamps, UserFacingError } from "./stt";
 import {
@@ -13,19 +15,24 @@ import {
   MIN_IMAGES,
   MIN_SCENE_SECONDS,
   NICHES,
+  VIDEO_EFFECTS,
   type CaptionCue,
   type CaptionStyleId,
   type ImageStats,
   type NicheDetection,
   type NicheId,
+  type SceneMedia,
   type Timing,
   type TimedWord,
+  type VideoEffectId,
 } from "./types";
 
 const AUDIO_EXT = new Set([".mp3", ".wav", ".m4a"]);
-const IMAGE_EXT = new Set([".jpg", ".jpeg", ".png", ".webp"]);
+const IMAGE_EXT = new Set(IMAGE_EXTENSIONS);
 const MAX_AUDIO_BYTES = 200 * 1024 * 1024;
 const MAX_IMAGE_BYTES = 25 * 1024 * 1024;
+const MAX_VIDEO_BYTES = 100 * 1024 * 1024;
+const UNSUPPORTED_MEDIA = "Use JPG, PNG or WebP images, or MP4, MOV or WebM video clips.";
 
 export function isFile(v: FormDataEntryValue | null): v is File {
   return typeof v === "object" && v !== null && "arrayBuffer" in v && v.size > 0;
@@ -66,19 +73,22 @@ export function checkTranscript(transcript: string): string | null {
 }
 
 export function checkImageCount(count: number): string | null {
-  if (count < MIN_IMAGES) return `Please add at least ${MIN_IMAGES} images (you added ${count}).`;
-  if (count > MAX_IMAGES) return `Please add at most ${MAX_IMAGES} images (you added ${count}).`;
+  if (count < MIN_IMAGES) return `Please add at least ${MIN_IMAGES} images or video clips (you added ${count}).`;
+  if (count > MAX_IMAGES) return `Please add at most ${MAX_IMAGES} images or video clips (you added ${count}).`;
   return null;
 }
 
+/** Images and video clips, in any mix. */
 export function checkImages(images: File[]): string | null {
   const countProblem = checkImageCount(images.length);
   if (countProblem) return countProblem;
-  for (const img of images) {
-    if (!IMAGE_EXT.has(path.extname(img.name).toLowerCase())) {
-      return `"${img.name}" isn't a supported image. Use JPG, PNG or WebP (iPhone HEIC photos need converting first).`;
+  for (const file of images) {
+    const kind = mediaKindOf(file.name);
+    if (!kind) {
+      return `"${file.name}" isn't a supported image or video. ${UNSUPPORTED_MEDIA} iPhone HEIC photos need converting first.`;
     }
-    if (img.size > MAX_IMAGE_BYTES) return `"${img.name}" is larger than 25 MB.`;
+    const limit = kind === "video" ? MAX_VIDEO_BYTES : MAX_IMAGE_BYTES;
+    if (file.size > limit) return `"${file.name}" is larger than ${limit / 1024 / 1024} MB.`;
   }
   return null;
 }
@@ -109,8 +119,26 @@ export function checkMediaUrls(audioUrl: unknown, imageUrls: unknown[]): string 
   if (!ok(audioUrl, AUDIO_EXT)) return "Please add your narration audio file (MP3, WAV or M4A).";
   const count = checkImageCount(imageUrls.length);
   if (count) return count;
-  if (!imageUrls.every((u) => ok(u, IMAGE_EXT))) return "Images must be JPG, PNG or WebP.";
+  if (!imageUrls.every((u) => isBlobUrl(u) && mediaKindOf(new URL(u).pathname))) return UNSUPPORTED_MEDIA;
   return null;
+}
+
+/**
+ * The composition's view of each image or clip, from local paths or Blob
+ * URLs. Clips need their length (short ones are slowed down or looped to fill
+ * their slot): the browser measures it, and anything it couldn't is read here.
+ */
+export async function describeMedia(srcs: string[], clipDurations: (number | null)[]): Promise<SceneMedia[]> {
+  return Promise.all(
+    srcs.map(async (src, i): Promise<SceneMedia> => {
+      if (mediaKindOf(src) !== "video") return { src, kind: "image", duration: null };
+      const duration = clipDurations[i] ?? (await getMediaDuration(src));
+      if (!duration) {
+        throw new UserFacingError(`Couldn't read video clip ${i + 1}. Try re-exporting it as an MP4 (H.264).`);
+      }
+      return { src, kind: "video", duration };
+    }),
+  );
 }
 
 export async function saveUpload(file: File, dir: string, baseName: string): Promise<string> {
@@ -135,9 +163,9 @@ export async function computeTiming(
 ): Promise<Timing> {
   // Decode once up front: used for speech detection and by local whisper.
   // Best-effort: if ffmpeg isn't available (e.g. trimmed serverless bundle),
-  // OpenAI transcription still works and we just skip the speech-bounds pass.
+  // hosted transcription still works and we just skip the speech-bounds pass.
   const wavPath = await toWav16k(audioPath, workDir).catch((err) => {
-    if (!process.env.OPENAI_API_KEY) throw err;
+    if (!aiProvider()) throw err;
     console.warn("[timing] audio decode for speech detection failed:", err instanceof Error ? err.message : err);
     return null;
   });
@@ -147,7 +175,7 @@ export async function computeTiming(
   ]);
   const speech = wavPath ? detectSpeechBounds(wavPath) : null;
   const fileDuration =
-    (await getAudioDuration(audioPath)) ?? speech?.duration ?? (recognized.at(-1)?.end ?? 0) + 0.5;
+    (await getMediaDuration(audioPath)) ?? speech?.duration ?? (recognized.at(-1)?.end ?? 0) + 0.5;
   if (!(fileDuration > 0.5) || (!speech && recognized.length === 0)) {
     throw new UserFacingError("The audio seems to be silent or too short. Check the recording and try again.");
   }
@@ -198,7 +226,7 @@ export async function computeTiming(
   const maxImages = Math.floor(durationInSeconds / MIN_SCENE_SECONDS);
   if (imageCount > maxImages) {
     throw new UserFacingError(
-      `The narration is only ${durationInSeconds.toFixed(1)} s long, which fits at most ${Math.max(MIN_IMAGES, maxImages)} images (each needs about ${MIN_SCENE_SECONDS} s on screen). Remove some images or use a longer recording.`,
+      `The narration is only ${durationInSeconds.toFixed(1)} s long, which fits at most ${Math.max(MIN_IMAGES, maxImages)} images or clips (each needs about ${MIN_SCENE_SECONDS} s on screen). Remove some or use a longer recording.`,
     );
   }
 
@@ -220,13 +248,15 @@ export async function computeTiming(
   };
 }
 
-async function getAudioDuration(file: string): Promise<number | null> {
+/** Length of a local file or a URL (read with range requests), from its container. */
+async function getMediaDuration(src: string): Promise<number | null> {
   try {
     const { parseMedia } = await import("@remotion/media-parser");
-    const { nodeReader } = await import("@remotion/media-parser/node");
+    // The default reader fetches URLs; local paths need the Node file reader.
+    const reader = /^https?:/.test(src) ? undefined : (await import("@remotion/media-parser/node")).nodeReader;
     const { durationInSeconds } = await parseMedia({
-      src: file,
-      reader: nodeReader,
+      src,
+      ...(reader ? { reader } : {}),
       fields: { durationInSeconds: true },
       acknowledgeRemotionLicense: true,
     });
@@ -288,6 +318,25 @@ export function parseCaptionStyle(v: unknown): CaptionStyleId | null {
   return CAPTION_STYLES.includes(v as CaptionStyleId) ? (v as CaptionStyleId) : null;
 }
 
+export function parseVideoEffect(v: unknown): VideoEffectId {
+  return VIDEO_EFFECTS.includes(v as VideoEffectId) ? (v as VideoEffectId) : "none";
+}
+
+/** Clip lengths measured in the browser (JSON array, null for images); anything invalid becomes null. */
+export function parseClipDurations(raw: unknown, count: number): (number | null)[] {
+  let list: unknown[] = [];
+  try {
+    const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+    if (Array.isArray(parsed)) list = parsed;
+  } catch {
+    // fall through to all-null
+  }
+  return Array.from({ length: count }, (_, i) => {
+    const d = list[i];
+    return num(d) && d > 0 && d <= 3600 ? d : null;
+  });
+}
+
 /** Image colour stats measured in the browser; unknown/invalid entries become null. */
 export function parseImageStats(raw: string | null, imageCount: number): (ImageStats | null)[] {
   let list: unknown[] = [];
@@ -310,7 +359,7 @@ export function toUserMessage(err: unknown): string {
   if (/ENOSPC/.test(msg)) return "The server ran out of disk space while rendering.";
   if (/timeout|timed out/i.test(msg)) return "Rendering timed out. Try a shorter clip or smaller images.";
   if (/decode|Invalid data|could not find codec/i.test(msg)) {
-    return "One of the files couldn't be decoded. Check the audio and images open normally on your computer.";
+    return "One of the files couldn't be decoded. Check the audio, images and clips open normally on your computer.";
   }
   return "Something went wrong while making the video. Check the server log for details and try again.";
 }

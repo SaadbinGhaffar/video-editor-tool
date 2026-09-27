@@ -4,7 +4,7 @@ import { FPS, VIDEO_HEIGHT, VIDEO_WIDTH, type MainVideoProps, type Timing } from
 import { MainVideo } from "./MainVideo";
 
 // Sample props so `npm run remotion:studio` shows something without the upload
-// flow. Change `niche` to preview another style.
+// flow. Change `niche` (or add `effect`) to preview another style.
 const sampleTiming: Timing = {
   durationInSeconds: 8,
   audioOffset: 0,
@@ -45,11 +45,7 @@ const defaultProps: MainVideoProps = buildVideoProps(
   sampleTiming,
   planStyle({ niche: "travel", timing: sampleTiming, imageStats: [null, null, null] }),
   "",
-  [
-    "https://picsum.photos/id/1018/1920/1080",
-    "https://picsum.photos/id/1015/1920/1080",
-    "https://picsum.photos/id/1036/1920/1080",
-  ],
+  [1018, 1015, 1036].map((id) => ({ src: `https://picsum.photos/id/${id}/1920/1080`, kind: "image", duration: null })),
 );
 
 export const RemotionRoot: React.FC = () => (

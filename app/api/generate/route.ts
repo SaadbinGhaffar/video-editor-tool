@@ -11,14 +11,17 @@ import {
   checkMusic,
   checkTranscript,
   computeTiming,
+  describeMedia,
   downloadBlob,
   isFile,
   isMusicUrl,
   parseCaptionStyle,
+  parseClipDurations,
   parseImageStats,
   parseMusicVolume,
   parseNiche,
   parseTiming,
+  parseVideoEffect,
   saveUpload,
   toUserMessage,
 } from "@/lib/pipeline";
@@ -40,9 +43,13 @@ type Job = {
   previewTiming: Timing | null;
   niche: ReturnType<typeof parseNiche>;
   caption: ReturnType<typeof parseCaptionStyle>;
+  effect: ReturnType<typeof parseVideoEffect>;
   imageStats: (ImageStats | null)[];
+  /** Per image/clip, in order: clip length measured in the browser, null for images. */
+  clipDurations: (number | null)[];
   musicVolume: number;
 } & (
+  // "images" carries video clips too.
   | { kind: "upload"; audio: File; images: File[]; music: File | null }
   | { kind: "blob"; audioUrl: string; imageUrls: string[]; musicUrl: string | null }
 );
@@ -70,7 +77,9 @@ async function readJob(req: Request): Promise<Job | Response> {
         previewTiming: parseTiming(b.timing ? JSON.stringify(b.timing) : null, imageUrls.length),
         niche: parseNiche(b.niche),
         caption: parseCaptionStyle(b.captionStyle),
+        effect: parseVideoEffect(b.effect),
         imageStats: parseImageStats(JSON.stringify(b.imageStats ?? null), imageUrls.length),
+        clipDurations: parseClipDurations(b.clipDurations, imageUrls.length),
       };
     }
     const form = await req.formData();
@@ -91,7 +100,9 @@ async function readJob(req: Request): Promise<Job | Response> {
       previewTiming: parseTiming(form.get("timing") as string | null, images.length),
       niche: parseNiche(form.get("niche")),
       caption: parseCaptionStyle(form.get("captionStyle")),
+      effect: parseVideoEffect(form.get("effect")),
       imageStats: parseImageStats(form.get("imageStats") as string | null, images.length),
+      clipDurations: parseClipDurations(form.get("clipDurations"), images.length),
     };
   } catch {
     return badRequest("The upload couldn't be read. Try again, and check the files aren't too large.");
@@ -129,7 +140,7 @@ export async function POST(req: Request) {
         const t = timing;
         // Same pure planner the browser preview uses, so the render matches it.
         const planFor = (imageStats: (ImageStats | null)[]) =>
-          planStyle({ niche: job.niche ?? t.detected.niche, caption: job.caption, timing: t, imageStats });
+          planStyle({ niche: job.niche ?? t.detected.niche, caption: job.caption, timing: t, imageStats, effect: job.effect });
         const meta = {
           durationInSeconds: t.durationInSeconds,
           words: t.words,
@@ -144,7 +155,7 @@ export async function POST(req: Request) {
             t,
             plan,
             job.audioUrl,
-            job.imageUrls,
+            await describeMedia(job.imageUrls, job.clipDurations),
             job.musicUrl ? { src: job.musicUrl, volume: job.musicVolume } : null,
           );
           const { startSandboxRender } = await import("@/lib/sandbox-render");
@@ -159,7 +170,7 @@ export async function POST(req: Request) {
         pruneOldRenders();
         const audio = await getAudio();
         const imagePaths: string[] = [];
-        for (const [i, img] of job.images.entries()) imagePaths.push(await saveUpload(img, workDir, `image-${i + 1}`));
+        for (const [i, img] of job.images.entries()) imagePaths.push(await saveUpload(img, workDir, `media-${i + 1}`));
         // Without browser-measured stats (e.g. API use), still detect portrait
         // images from their headers so they're shown whole rather than cropped.
         const imageStats = job.imageStats.map((s, i) => {
@@ -171,7 +182,8 @@ export async function POST(req: Request) {
         const music = job.music
           ? { path: await saveUpload(job.music, workDir, "music"), volume: job.musicVolume }
           : null;
-        const output = await renderVideo(jobId, { audioPath: audio, imagePaths, music }, t, plan, (stage, progress) => {
+        const media = await describeMedia(imagePaths, job.clipDurations);
+        const output = await renderVideo(jobId, { audioPath: audio, media, music }, t, plan, (stage, progress) => {
           if (stage === "bundling") {
             send({ type: "progress", stage, message: "Preparing the video renderer (slow the first time)…" });
           } else if (stage === "queued") {

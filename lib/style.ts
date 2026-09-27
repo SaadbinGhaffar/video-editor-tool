@@ -8,10 +8,13 @@ import {
   type MainVideoProps,
   type NicheId,
   type SceneLook,
+  type SceneMedia,
   type StylePlan,
   type Timing,
   type TransitionKind,
+  type VideoEffectId,
 } from "./types";
+import { effectLook } from "./videoEffects";
 
 // Pure and deterministic: the browser (live preview) and the server (render)
 // both call planStyle with the same inputs and get the same plan.
@@ -30,6 +33,7 @@ type NichePreset = {
 };
 
 const NEUTRAL: Grade = { brightness: 1, contrast: 1, saturate: 1, sepia: 0, hue: 0 };
+const NO_EFFECTS: StylePlan["effects"] = { vignette: 0, grain: 0, lightLeak: 0, letterbox: false, tint: null };
 
 export const NICHE_PRESETS: Record<NicheId, NichePreset> = {
   general: {
@@ -159,10 +163,12 @@ export type StyleInputs = {
   timing: Pick<Timing, "wpm" | "scenes" | "cues">;
   /** One entry per image, in order; null when stats are unknown. */
   imageStats: (ImageStats | null)[];
+  effect?: VideoEffectId | null;
 };
 
-export function planStyle({ niche, caption, timing, imageStats }: StyleInputs): StylePlan {
+export function planStyle({ niche, caption, timing, imageStats, effect = "none" }: StyleInputs): StylePlan {
   const preset = NICHE_PRESETS[niche];
+  const look = effectLook(effect ?? "none");
   const seed = hashString(timing.cues.map((c) => c.words.map((w) => w.text).join(" ")).join("|") + niche);
   const rand = mulberry32(seed);
 
@@ -192,19 +198,32 @@ export function planStyle({ niche, caption, timing, imageStats }: StyleInputs): 
     const stats = imageStats[i] ?? null;
     return {
       fit: stats && stats.aspect < 1.3 ? "blur-fill" : "cover",
-      filter: gradeFor(preset.grade, stats),
+      // A whole-video effect brings its own grade; keep only the per-image exposure/colour balancing.
+      filter: gradeFor(look ? NEUTRAL : preset.grade, stats),
     };
   });
 
   return {
     niche,
     caption: caption ?? preset.caption,
+    effect: look ? (effect ?? "none") : "none",
     transitionFrames,
     transitions,
     kenBurns: { ...preset.kenBurns, zoom: preset.kenBurns.zoom * clamp(1 / pace, 0.85, 1.2) },
-    effects: preset.effects,
+    effects: look ? NO_EFFECTS : preset.effects,
     scenes,
   };
+}
+
+/**
+ * x264 CRF for the render. Slow-moving photos compress well, so CRF 20 keeps
+ * them clean at a fraction of the default size. Film grain is noise the
+ * encoder has to spend bits on, so grainy looks get a slightly higher CRF
+ * (invisible under the grain) to keep downloads a sensible size.
+ */
+export function encoderCrf(plan: Pick<StylePlan, "effect" | "effects">): number {
+  const grain = effectLook(plan.effect)?.grain ?? plan.effects.grain;
+  return Math.min(24, 20 + Math.round(grain * 40));
 }
 
 /** Combine timing, style and media URLs into the composition's props. */
@@ -212,7 +231,7 @@ export function buildVideoProps(
   timing: Timing,
   plan: StylePlan,
   audioSrc: string,
-  imageSrcs: string[],
+  media: SceneMedia[],
   music: BackgroundMusic | null = null,
 ): MainVideoProps {
   const { scenes: looks, ...style } = plan;
@@ -222,7 +241,7 @@ export function buildVideoProps(
     audioOffset: timing.audioOffset,
     durationInSeconds: timing.durationInSeconds,
     cues: timing.cues,
-    scenes: timing.scenes.map((s, i) => ({ ...s, ...looks[i], src: imageSrcs[i] })),
+    scenes: timing.scenes.map((s, i) => ({ ...s, ...looks[i], ...media[i] })),
     style,
   };
 }

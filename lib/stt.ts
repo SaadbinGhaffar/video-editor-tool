@@ -4,12 +4,13 @@ import path from "node:path";
 import OpenAI from "openai";
 import { toWav16k } from "./audio";
 import { UserFacingError } from "./errors";
+import { aiProvider, type AiProvider } from "./llm";
 import type { TimedWord } from "./types";
 
 export { UserFacingError };
 
-/** OpenAI's upload limit for the transcription endpoint. */
-const OPENAI_MAX_BYTES = 25 * 1024 * 1024;
+/** Upload limit of the hosted transcription endpoints (OpenAI, Groq free tier). */
+const HOSTED_MAX_BYTES = 25 * 1024 * 1024;
 
 export const WHISPER_DIR = path.join(/* turbopackIgnore: true */ process.cwd(), ".whisper");
 export const WHISPER_CPP_DIR = path.join(WHISPER_DIR, "whisper.cpp");
@@ -27,29 +28,33 @@ export async function transcribeWithTimestamps(
   transcriptHint: string,
   workDir: string,
 ): Promise<SttResult> {
-  if (process.env.OPENAI_API_KEY) {
-    return { words: await transcribeOpenAI(audioPath, transcriptHint), provider: "openai-whisper-1" };
+  const provider = aiProvider();
+  if (provider) {
+    return {
+      words: await transcribeHosted(provider, audioPath, transcriptHint),
+      provider: `${provider.name.toLowerCase()}-${provider.sttModel}`,
+    };
   }
   if (localWhisperInstalled()) {
     return { words: await transcribeLocal(audioPath, workDir), provider: `whisper.cpp ${WHISPER_MODEL}` };
   }
   throw new UserFacingError(
-    "No speech-to-text is configured. Add OPENAI_API_KEY to .env.local, or run `npm run setup:whisper` to install local transcription, then restart the server.",
+    "No speech-to-text is configured. Add OPENAI_API_KEY or GROQ_API_KEY to .env.local, or run `npm run setup:whisper` to install local transcription, then restart the server.",
   );
 }
 
-async function transcribeOpenAI(audioPath: string, hint: string): Promise<TimedWord[]> {
+async function transcribeHosted(provider: AiProvider, audioPath: string, hint: string): Promise<TimedWord[]> {
   const size = fs.statSync(audioPath).size;
-  if (size > OPENAI_MAX_BYTES) {
+  if (size > HOSTED_MAX_BYTES) {
     throw new UserFacingError(
       `The audio file is ${(size / 1024 / 1024).toFixed(1)} MB; the transcription service accepts up to 25 MB. Export it as a lower-bitrate MP3 and try again.`,
     );
   }
-  const client = new OpenAI();
+  const client = provider.client();
   try {
     const res = await client.audio.transcriptions.create({
       file: fs.createReadStream(audioPath),
-      model: "whisper-1",
+      model: provider.sttModel,
       response_format: "verbose_json",
       timestamp_granularities: ["word"],
       // Whisper only reads the last ~224 tokens of the prompt; the opening of
@@ -59,8 +64,8 @@ async function transcribeOpenAI(audioPath: string, hint: string): Promise<TimedW
     return (res.words ?? []).map((w) => ({ text: w.word.trim(), start: w.start, end: w.end }));
   } catch (err) {
     if (err instanceof OpenAI.APIError) {
-      if (err.status === 401) throw new UserFacingError("The OpenAI API key was rejected. Check OPENAI_API_KEY in .env.local.");
-      if (err.status === 429) throw new UserFacingError("OpenAI rate limit or quota reached. Wait a moment or check your billing, then try again.");
+      if (err.status === 401) throw new UserFacingError(`The ${provider.name} API key was rejected. Check ${provider.envVar}.`);
+      if (err.status === 429) throw new UserFacingError(`${provider.name} rate limit or quota reached. Wait a moment or check your billing, then try again.`);
       if (err.status === 400) throw new UserFacingError(`The transcription service couldn't read this audio file (${err.message}). Try exporting it as MP3 or WAV.`);
     }
     throw err;

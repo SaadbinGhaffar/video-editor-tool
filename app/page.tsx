@@ -3,23 +3,26 @@
 import dynamic from "next/dynamic";
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { detectNicheFromText, NICHE_LABELS } from "@/lib/niche";
+import { mediaKindOf } from "@/lib/media";
 import { buildVideoProps, NICHE_PRESETS, planStyle } from "@/lib/style";
 import {
   DEFAULT_MUSIC_VOLUME,
   MAX_IMAGES,
   MIN_IMAGES,
   NICHES,
+  VIDEO_EFFECTS,
   type CaptionStyleId,
   type GenerateEvent,
-  type ImageStats,
   type NicheId,
   type PipelineStage,
   type Timing,
+  type VideoEffectId,
 } from "@/lib/types";
+import { effectLook } from "@/lib/videoEffects";
 import { CaptionStylePicker } from "./CaptionStylePicker";
-import { ImageGallery, type ImageItem } from "./ImageGallery";
+import { MediaGallery, type MediaItem } from "./MediaGallery";
 import { MusicInput, type MusicChoice } from "./MusicInput";
-import { measureImage } from "./imageStats";
+import { measureImage, measureVideo } from "./imageStats";
 import { accessHeaders, loadAccessKey, pollRender, saveAccessKey, uploadToBlob, type AppConfig } from "./transport";
 
 // The Remotion player only runs in the browser.
@@ -48,14 +51,15 @@ async function readError(res: Response) {
   return data?.message ?? `The server returned an error (${res.status}).`;
 }
 
-let nextImageId = 1;
+let nextMediaId = 1;
 
 export default function Home() {
   const [audio, setAudio] = useState<{ file: File; url: string } | null>(null);
   const [transcript, setTranscript] = useState("");
-  const [images, setImages] = useState<ImageItem[]>([]);
+  const [media, setMedia] = useState<MediaItem[]>([]);
   const [nicheChoice, setNicheChoice] = useState<NicheId | "auto">("auto");
   const [captionChoice, setCaptionChoice] = useState<CaptionStyleId | "auto">("auto");
+  const [effect, setEffect] = useState<VideoEffectId>("none");
   const [music, setMusic] = useState<MusicChoice | null>(null);
   const [musicVolume, setMusicVolume] = useState(DEFAULT_MUSIC_VOLUME);
   const [busy, setBusy] = useState<Busy>(null);
@@ -78,7 +82,7 @@ export default function Home() {
       .catch(() => setConfig(null));
   }, []);
 
-  const currentKey = timingKey(audio?.file ?? null, transcript, images.length);
+  const currentKey = timingKey(audio?.file ?? null, transcript, media.length);
   const freshTiming = timing && timing.key === currentKey ? timing.value : null;
 
   // Live keyword guess while typing; replaced by the server's detection after a preview.
@@ -95,12 +99,12 @@ export default function Home() {
   }, [busy]);
 
   // Revoke object URLs when the page goes away.
-  const latest = useRef({ audio, images });
-  latest.current = { audio, images };
+  const latest = useRef({ audio, media });
+  latest.current = { audio, media };
   useEffect(
     () => () => {
       if (latest.current.audio) URL.revokeObjectURL(latest.current.audio.url);
-      latest.current.images.forEach((i) => URL.revokeObjectURL(i.url));
+      latest.current.media.forEach((i) => URL.revokeObjectURL(i.url));
     },
     [],
   );
@@ -112,33 +116,36 @@ export default function Home() {
     });
   }
 
-  function addImages(files: File[]) {
-    const room = MAX_IMAGES - images.length;
-    const accepted = files.filter((f) => /\.(jpe?g|png|webp)$/i.test(f.name) || /^image\/(jpeg|png|webp)$/.test(f.type));
+  function addMedia(files: File[]) {
+    const room = MAX_IMAGES - media.length;
+    const accepted = files.filter((f) => mediaKindOf(f.name, f.type));
     const skipped = files.length - accepted.length;
     const toAdd = accepted.slice(0, Math.max(0, room));
     const problems: string[] = [];
-    if (skipped) problems.push(`${skipped} file(s) skipped: only JPG, PNG or WebP images are supported.`);
-    if (accepted.length > toAdd.length) problems.push(`Only ${MAX_IMAGES} images are allowed; the extra ones were not added.`);
+    if (skipped) problems.push(`${skipped} file(s) skipped: only JPG, PNG or WebP images and MP4, MOV or WebM clips are supported.`);
+    if (accepted.length > toAdd.length) problems.push(`Only ${MAX_IMAGES} images or clips are allowed; the extra ones were not added.`);
     setError(problems.length ? problems.join(" ") : null);
 
-    const items: ImageItem[] = toAdd.map((file) => ({
-      id: nextImageId++,
+    const items: MediaItem[] = toAdd.map((file) => ({
+      id: nextMediaId++,
       file,
       url: URL.createObjectURL(file),
+      kind: mediaKindOf(file.name, file.type) ?? "image",
       stats: null,
+      duration: null,
     }));
-    setImages((prev) => [...prev, ...items]);
-    // Measure colours in the background; the grade uses them once ready.
+    setMedia((prev) => [...prev, ...items]);
+    // Measure colours (and clip lengths) in the background; the plan uses them once ready.
+    const update = (id: number, patch: Partial<MediaItem>) =>
+      setMedia((prev) => prev.map((p) => (p.id === id ? { ...p, ...patch } : p)));
     for (const item of items) {
-      measureImage(item.file).then((stats: ImageStats | null) =>
-        setImages((prev) => prev.map((p) => (p.id === item.id ? { ...p, stats } : p))),
-      );
+      if (item.kind === "video") measureVideo(item.file).then((m) => update(item.id, m));
+      else measureImage(item.file).then((stats) => update(item.id, { stats }));
     }
   }
 
-  function removeImage(id: number) {
-    setImages((prev) => {
+  function removeMedia(id: number) {
+    setMedia((prev) => {
       const gone = prev.find((p) => p.id === id);
       if (gone) URL.revokeObjectURL(gone.url);
       return prev.filter((p) => p.id !== id);
@@ -149,7 +156,7 @@ export default function Home() {
     let problem: string | null = null;
     if (!audio) problem = "Please add your narration audio file.";
     else if (!transcript.trim()) problem = "Please paste the transcript of your narration.";
-    else if (images.length < MIN_IMAGES) problem = `Please add at least ${MIN_IMAGES} images.`;
+    else if (media.length < MIN_IMAGES) problem = `Please add at least ${MIN_IMAGES} images or video clips.`;
     setError(problem);
     return problem === null;
   }
@@ -168,10 +175,10 @@ export default function Home() {
     setError(msg === "Failed to fetch" ? "Couldn't reach the server. Is it still running?" : msg);
   }
 
-  /** Vercel mode: put the audio (and optionally images) in Blob storage first. */
+  /** Vercel mode: put the audio (and optionally images and clips) in Blob storage first. */
   async function uploadMedia(withImages: boolean) {
     if (!audio) throw new Error("Please add your narration audio file.");
-    const extra = withImages ? images.map((i) => i.file) : [];
+    const extra = withImages ? media.map((i) => i.file) : [];
     const musicFile = withImages && music ? music.file : null;
     const files = [audio.file, ...extra, ...(musicFile ? [musicFile] : [])];
     const total = files.reduce((n, f) => n + f.size, 0);
@@ -183,7 +190,12 @@ export default function Home() {
     };
     const urls = await Promise.all(
       files.map((f, i) =>
-        uploadToBlob(f, i === 0 ? "audio" : f === musicFile ? "music" : "image", accessKey, track(f)),
+        uploadToBlob(
+          f,
+          i === 0 ? "audio" : f === musicFile ? "music" : (mediaKindOf(f.name, f.type) ?? "image"),
+          accessKey,
+          track(f),
+        ),
       ),
     );
     return {
@@ -206,13 +218,13 @@ export default function Home() {
         res = await fetch("/api/timing", {
           method: "POST",
           headers: { "Content-Type": "application/json", ...accessHeaders(accessKey) },
-          body: JSON.stringify({ audioUrl, transcript, imageCount: images.length }),
+          body: JSON.stringify({ audioUrl, transcript, imageCount: media.length }),
         });
       } else {
         const body = new FormData();
         body.append("audio", audio.file);
         body.append("transcript", transcript);
-        body.append("imageCount", String(images.length));
+        body.append("imageCount", String(media.length));
         setStage("transcribing");
         setMessage("Transcribing audio and aligning your transcript…");
         res = await fetch("/api/timing", { method: "POST", body, headers: accessHeaders(accessKey) });
@@ -235,7 +247,9 @@ export default function Home() {
     const style = {
       niche: nicheChoice,
       captionStyle: captionChoice,
-      imageStats: images.map((i) => i.stats),
+      effect,
+      imageStats: media.map((i) => i.stats),
+      clipDurations: media.map((i) => i.duration),
       musicVolume,
     };
     try {
@@ -252,10 +266,12 @@ export default function Home() {
         const body = new FormData();
         body.append("audio", audio.file);
         body.append("transcript", transcript);
-        for (const img of images) body.append("images", img.file);
+        for (const item of media) body.append("images", item.file);
         body.append("imageStats", JSON.stringify(style.imageStats));
+        body.append("clipDurations", JSON.stringify(style.clipDurations));
         body.append("niche", style.niche);
         body.append("captionStyle", style.captionStyle);
+        body.append("effect", style.effect);
         if (music) {
           body.append("music", music.file);
           body.append("musicVolume", String(musicVolume));
@@ -311,21 +327,22 @@ export default function Home() {
   }
 
   const previewProps = useMemo(() => {
-    if (!freshTiming || !audio || images.length !== freshTiming.scenes.length) return null;
+    if (!freshTiming || !audio || media.length !== freshTiming.scenes.length) return null;
     const plan = planStyle({
       niche,
       caption: captionStyle,
       timing: freshTiming,
-      imageStats: images.map((i) => i.stats),
+      imageStats: media.map((i) => i.stats),
+      effect,
     });
     return buildVideoProps(
       freshTiming,
       plan,
       audio.url,
-      images.map((i) => i.url),
+      media.map((i) => ({ src: i.url, kind: i.kind, duration: i.duration })),
       music ? { src: music.url, volume: musicVolume } : null,
     );
-  }, [freshTiming, audio, images, niche, captionStyle, music, musicVolume]);
+  }, [freshTiming, audio, media, niche, captionStyle, effect, music, musicVolume]);
 
   const current = stepIndex(stage);
   const detectedLabel =
@@ -335,8 +352,8 @@ export default function Home() {
     <main>
       <h1>Auto Video Editor</h1>
       <p className="lede">
-        Upload your narration, its transcript and {MIN_IMAGES}–{MAX_IMAGES} images. The style (transitions, colour,
-        effects, captions) is matched to your topic automatically. Preview it here, then render a 1920×1080 MP4.
+        Upload your narration, its transcript and {MIN_IMAGES}–{MAX_IMAGES} images or video clips. The style
+        (transitions, colour, effects, captions) is matched to your topic automatically. Preview it here, then render a 1920×1080 MP4.
       </p>
 
       <form onSubmit={onRender}>
@@ -363,7 +380,7 @@ export default function Home() {
             Setup incomplete:{" "}
             {[
               !config.blobConfigured && "connect a Vercel Blob store to this project",
-              !config.transcriptionConfigured && "add the OPENAI_API_KEY environment variable",
+              !config.transcriptionConfigured && "add an OPENAI_API_KEY or GROQ_API_KEY environment variable",
             ]
               .filter(Boolean)
               .join(" and ")}
@@ -396,13 +413,13 @@ export default function Home() {
 
         <div className="field">
           <span className="label">
-            3. Images ({MIN_IMAGES}–{MAX_IMAGES})
+            3. Images or video clips ({MIN_IMAGES}–{MAX_IMAGES})
           </span>
-          <ImageGallery
-            images={images}
-            onAdd={addImages}
-            onRemove={removeImage}
-            onReorder={setImages}
+          <MediaGallery
+            items={media}
+            onAdd={addMedia}
+            onRemove={removeMedia}
+            onReorder={setMedia}
             disabled={!!busy}
           />
         </div>
@@ -431,6 +448,27 @@ export default function Home() {
                 : "Manual choice."}
             </p>
           </div>
+        </div>
+
+        <div className="field style-single">
+          <label htmlFor="effect">Video effect</label>
+          <select
+            id="effect"
+            value={effect}
+            onChange={(e) => setEffect(e.target.value as VideoEffectId)}
+            disabled={!!busy}
+          >
+            {VIDEO_EFFECTS.map((id) => (
+              <option key={id} value={id}>
+                {effectLook(id)?.label ?? "None (use the style's own look)"}
+              </option>
+            ))}
+          </select>
+          <p className="hint">
+            {effectLook(effect)
+              ? `${effectLook(effect)!.description} Applied to the whole video, over the style's transitions and motion.`
+              : "Pick a finishing look for the whole video: Cinematic, Vintage film, Black & white, Dreamy glow or VHS retro."}
+          </p>
         </div>
 
         <div className="field">
@@ -516,7 +554,7 @@ export default function Home() {
             {freshTiming.words} words · {freshTiming.cues.length} captions · {freshTiming.wpm} words/min
             {freshTiming.audioOffset > 0 ? ` · ${freshTiming.audioOffset.toFixed(1)} s of leading silence trimmed` : ""}
             . Swapping, reordering or restyling updates it instantly; changing the audio, transcript or number of
-            images needs a refresh.
+            images or clips needs a refresh.
           </p>
         </section>
       ) : timing ? (

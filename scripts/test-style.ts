@@ -1,8 +1,9 @@
 // Checks for niche detection and the style planner: `npm run test:style`
 import assert from "node:assert/strict";
 import { detectNicheFromText } from "../lib/niche";
-import { buildVideoProps, planStyle } from "../lib/style";
-import { FPS, type Timing } from "../lib/types";
+import { mediaKindOf } from "../lib/media";
+import { buildVideoProps, encoderCrf, planStyle } from "../lib/style";
+import { FPS, VIDEO_EFFECTS, type Timing } from "../lib/types";
 
 // 1. Niche detection on clearly-themed scripts.
 const samples: [string, string][] = [
@@ -73,10 +74,41 @@ const timing = (images: number, duration = 30, wpm = 150): Timing => ({
   assert.equal(plan.scenes[1].fit, "cover");
   const bright = (f: string) => Number(/brightness\(([\d.]+)\)/.exec(f)![1]);
   assert.ok(bright(plan.scenes[0].filter) > bright(plan.scenes[1].filter), "dark photo is lifted more");
-  const props = buildVideoProps(timing(2), plan, "a.mp3", ["1.jpg", "2.jpg"]);
+  const props = buildVideoProps(timing(2), plan, "a.mp3", [
+    { src: "1.jpg", kind: "image", duration: null },
+    { src: "2.mp4", kind: "video", duration: 8.5 },
+  ]);
   assert.equal(props.scenes[0].src, "1.jpg");
   assert.equal(props.scenes[0].fit, "blur-fill");
+  assert.equal(props.scenes[1].kind, "video");
+  assert.equal(props.scenes[1].duration, 8.5);
   console.log("ok  per-image grade + portrait fit:", plan.scenes.map((s) => s.filter).join(" | "));
+}
+
+// 3. Media kinds.
+{
+  assert.equal(mediaKindOf("clip.MOV"), "video");
+  assert.equal(mediaKindOf("https://x.public.blob.vercel-storage.com/uploads/video-a-8Hq.mp4"), "video");
+  assert.equal(mediaKindOf("photo.jpeg"), "image");
+  assert.equal(mediaKindOf("blob", "video/webm"), "video");
+  assert.equal(mediaKindOf("notes.txt"), null);
+  console.log("ok  image/video detection");
+}
+
+// 4. Whole-video effects replace the niche's grade and finishing layers.
+{
+  const stats = [{ luma: 0.46, saturation: 0.3, warmth: 0, aspect: 1.78 }];
+  const t = timing(1);
+  const plain = planStyle({ niche: "documentary", timing: t, imageStats: stats });
+  const vhs = planStyle({ niche: "documentary", timing: t, imageStats: stats, effect: "vhs" });
+  assert.equal(plain.effect, "none");
+  assert.equal(vhs.effect, "vhs");
+  assert.ok(plain.effects.letterbox && !vhs.effects.letterbox, "niche finish is switched off under an effect");
+  assert.ok(/sepia/.test(plain.scenes[0].filter) && !/sepia/.test(vhs.scenes[0].filter), "niche grade gives way");
+  assert.deepEqual(vhs.transitions, plain.transitions, "transitions still follow the niche");
+  assert.ok(encoderCrf(vhs) > encoderCrf({ ...vhs, effect: "cinematic" }), "grainier look → higher CRF");
+  for (const id of VIDEO_EFFECTS) planStyle({ niche: "general", timing: t, imageStats: stats, effect: id });
+  console.log("ok  video effects:", VIDEO_EFFECTS.join(", "));
 }
 
 console.log("all style checks passed");

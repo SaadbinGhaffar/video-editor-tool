@@ -5,6 +5,7 @@ import { head, put } from "@vercel/blob";
 import { Sandbox } from "@vercel/sandbox";
 import { VERSION } from "remotion/version";
 import { UserFacingError } from "./errors";
+import { encoderCrf } from "./style";
 import type { MainVideoProps, StylePlan } from "./types";
 
 // Built by `npm run vercel-build` and shipped with the function (see next.config.ts).
@@ -94,6 +95,9 @@ export async function startSandboxRender(
   const token = blobToken();
   const sandbox = await getSandbox(onProgress);
   onProgress("Uploading the video template…", 0.95);
+  // addBundleToSandbox creates each sub-folder of "remotion-bundle" but not the
+  // folder itself, and the sandbox's mkDir isn't recursive.
+  await sandbox.runCommand("mkdir", ["-p", "remotion-bundle"]);
   await addBundleToSandbox({ sandbox, bundleDir: SANDBOX_BUNDLE_DIR });
 
   const { sandboxId, cmdId } = await renderMediaOnVercel({
@@ -104,7 +108,7 @@ export async function startSandboxRender(
     audioCodec: "aac",
     pixelFormat: "yuv420p",
     colorSpace: "bt709",
-    crf: Math.min(24, 20 + Math.round(plan.effects.grain * 40)),
+    crf: encoderCrf(plan),
     x264Preset: "medium",
     jpegQuality: 90,
     timeoutInMilliseconds: 120_000,

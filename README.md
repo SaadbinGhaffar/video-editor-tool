@@ -1,9 +1,20 @@
 # Auto Video Editor
 
-Upload **narration audio + its transcript + 2–10 images**, click one button, and download a
-**1920×1080 H.264 MP4**. The video has word-timed captions in your exact wording, Ken Burns
-motion on each image, and transitions, colour grading, effects and a caption style matched
-to the **niche** of the narration (fitness, tech, travel, documentary…).
+Upload **narration audio + its transcript + 2–10 images or video clips**, click one button,
+and download a **1920×1080 H.264 MP4**. The video has word-timed captions in your exact
+wording, Ken Burns motion on each image, and transitions, colour grading, effects and a
+caption style matched to the **niche** of the narration (fitness, tech, travel, documentary…).
+
+**Video clips** (MP4, MOV or WebM, up to 100 MB each; 5–10 s clips work best) can be mixed
+freely with images. They play muted under the narration. A clip shorter than its slot plays in
+gentle slow motion (down to 0.6×) and then loops; a longer one is cut at the slot's end.
+
+**Video effect** (optional) puts one finishing look over the whole video: **Cinematic**
+(teal-and-orange grade, 2.39:1 bars), **Vintage film** (faded stock, grain, flicker, dust, gate
+weave), **Black & white**, **Dreamy glow** (highlight bloom, light leaks) or **VHS retro**
+(colour fringing, scanlines, tracking glitches). It replaces the niche's grade and finishing
+layers; the niche's transitions, motion and captions stay. Defined in `lib/videoEffects.ts`
+and drawn by `remotion/videoEffects.tsx`. Each adds roughly 10–35% to render time.
 
 **Preview** (optional) runs only the timing step. It then plays the exact composition
 in-browser with `@remotion/player`, using your local files. Changing the style, the caption
@@ -47,6 +58,8 @@ Word timing comes from the audio, never from the transcript:
 
 - **OpenAI Whisper** (`whisper-1`, word timestamps) is used when `OPENAI_API_KEY` is set.
   The transcript is passed as a prompt hint. Upload limit is 25 MB, so use MP3 for long narrations.
+- **Groq Whisper** (`whisper-large-v3-turbo`) is used instead when only `GROQ_API_KEY` is set.
+  Same API and the same 25 MB limit on the free tier.
 - **Local whisper.cpp** is the fallback when no key is set. Install it once with
   `npm run setup:whisper`, which downloads the binary plus the `base.en` model (~150 MB)
   into `.whisper/`. On Linux this compiles whisper.cpp, so it needs `make` and a C compiler.
@@ -58,9 +71,9 @@ On the first render, Remotion downloads Chrome Headless Shell (~110 MB) into
 
 `lib/niche.ts` detects the niche from the transcript's vocabulary. It's an offline keyword
 classifier that gives the same result every time, and the UI shows the words it matched.
-With `OPENAI_API_KEY` set, `lib/niche-llm.ts` asks an LLM instead (model `NICHE_MODEL`,
-default `gpt-4.1-mini`) and falls back to keywords on any error. The user can always
-override the result from the **Style** dropdown.
+With `OPENAI_API_KEY` or `GROQ_API_KEY` set, `lib/niche-llm.ts` asks an LLM instead (model
+`NICHE_MODEL`, default `gpt-4.1-mini` on OpenAI or `qwen/qwen3.8-27b` on Groq) and falls back to
+keywords on any error. The user can always override the result from the **Style** dropdown.
 
 `lib/style.ts` → `planStyle()` turns the niche into a full style plan. It's a pure,
 seeded function that the browser and server both call, so preview and render always match.
@@ -92,7 +105,9 @@ The composition is in `remotion/`. The pieces:
 - **Transitions:** Remotion's CSS transitions (fade, slide, wipe, flip, iris, push-cut) plus
   custom CSS ones in `customTransitions.tsx` (zoom-through, whip-pan, glitch, flash,
   dip-to-black). They don't use WebGL, so they look identical in the preview and the render.
-- **Effects:** `effects.tsx` covers tint, light leaks, vignette, grain and letterbox.
+- **Effects:** `effects.tsx` covers tint, light leaks, vignette, grain and letterbox;
+  `videoEffects.tsx` adds the whole-video looks (SVG colour filters, film dust, scanlines).
+- **Clips:** `SceneVideo.tsx` plays each clip with `OffthreadVideo`, slowed or looped to fit.
 - **Captions:** seven caption looks in `Captions.tsx`.
 
 `npm run remotion:studio` previews the composition with sample props.
@@ -105,8 +120,9 @@ full pipeline and streams progress as NDJSON. If the browser sends the preview's
 it's validated and reused.
 
 1. **Validate** the audio (MP3/WAV/M4A), the transcript (non-empty) and 2–10 images
-   (JPG/PNG/WebP, ≤ 25 MB each). Each image needs at least ~1.2 s on screen; if there are
-   too many for the narration's length, the error says how many fit.
+   (JPG/PNG/WebP, ≤ 25 MB each) or clips (MP4/MOV/M4V/WebM, ≤ 100 MB each). Each needs at
+   least ~1.2 s on screen; if there are too many for the narration's length, the error says
+   how many fit. Clip lengths come from the browser, or are read from the file if missing.
 2. **Transcribe** with word timestamps (`lib/stt.ts`). Niche detection runs in parallel.
 3. **Find the real speech bounds** from the signal's loudness (`lib/audio.ts`).
    Recognizers are unreliable at the edges; whisper.cpp stamps the first word at 0 s even
@@ -140,7 +156,7 @@ On Vercel (detected via the `VERCEL` env var) the app switches to a serverless-f
 
 - **Uploads** go from the browser straight to **Vercel Blob** (`/api/upload` issues client
   tokens), because Functions only accept ~4.5 MB request bodies.
-- **Transcription** needs **`OPENAI_API_KEY`**, since local whisper.cpp can't run in a Function.
+- **Transcription** needs **`OPENAI_API_KEY`** or **`GROQ_API_KEY`**, since local whisper.cpp can't run in a Function.
 - **Rendering** runs in **Vercel Sandbox** through `@remotion/vercel`. The Remotion bundle
   is prebuilt during `vercel-build` (`remotion-build/`) and uploaded into a sandbox, which
   renders detached and uploads the MP4 to Blob. The page polls `/api/render-progress`.
@@ -156,7 +172,7 @@ Setup:
    `BLOB_READ_WRITE_TOKEN`. The render machine loads media by URL, so the store must be
    public. File URLs are unguessable and deleted after 24 h.
 3. Add environment variables:
-   - `OPENAI_API_KEY` (required)
+   - `OPENAI_API_KEY` or `GROQ_API_KEY` (one is required)
    - `APP_ACCESS_KEY` (strongly recommended: without it, anyone with the URL can run
      renders on your account)
    - `CRON_SECRET` (any random string)

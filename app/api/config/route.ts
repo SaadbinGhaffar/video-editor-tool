@@ -1,5 +1,6 @@
 import { accessKeyRequired } from "@/lib/access";
 import { deployMode } from "@/lib/deploy";
+import { aiProvider } from "@/lib/llm";
 
 export const dynamic = "force-dynamic";
 
@@ -9,6 +10,6 @@ export function GET() {
     mode: deployMode,
     accessKeyRequired,
     blobConfigured: !!process.env.BLOB_READ_WRITE_TOKEN,
-    transcriptionConfigured: deployMode === "local" || !!process.env.OPENAI_API_KEY,
+    transcriptionConfigured: deployMode === "local" || !!aiProvider(),
   });
 }
