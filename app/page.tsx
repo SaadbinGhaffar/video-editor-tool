@@ -10,7 +10,9 @@ import {
   MAX_IMAGES,
   MIN_IMAGES,
   NICHES,
+  FORMAT_SIZE,
   VIDEO_EFFECTS,
+  VIDEO_FORMATS,
   type CaptionStyleId,
   type GenerateEvent,
   type ImageStats,
@@ -18,6 +20,7 @@ import {
   type PipelineStage,
   type Timing,
   type VideoEffectId,
+  type VideoFormat,
 } from "@/lib/types";
 import { effectLook } from "@/lib/videoEffects";
 import { CaptionStylePicker } from "./CaptionStylePicker";
@@ -34,15 +37,20 @@ const PreviewPlayer = dynamic(() => import("./PreviewPlayer"), {
 });
 
 /** A finished render, with the transcript it was made from (for the SEO text). */
-type Done = Extract<GenerateEvent, { type: "done" }> & { transcript: string };
+type Done = Extract<GenerateEvent, { type: "done" }> & { transcript: string; format: VideoFormat };
 type Busy = null | "preview" | "render";
 
 const STEPS: { stage: PipelineStage; label: string }[] = [
   { stage: "upload", label: "Upload files" },
   { stage: "transcribing", label: "Transcribe audio and align your transcript" },
   { stage: "bundling", label: "Prepare the renderer" },
-  { stage: "rendering", label: "Render 1920×1080 MP4" },
+  { stage: "rendering", label: "Render the MP4" },
 ];
+const FORMAT_LABELS: Record<VideoFormat, { title: string; detail: string }> = {
+  landscape: { title: "YouTube video", detail: "16:9 · 1920×1080" },
+  shorts: { title: "YouTube Shorts", detail: "9:16 · 1080×1920 · Shorts can be up to 3 min" },
+};
+
 const stepIndex = (s: PipelineStage) => STEPS.findIndex((x) => x.stage === (s === "queued" ? "bundling" : s));
 
 /** Identifies the inputs timing was computed from, so we know when it's stale. */
@@ -63,6 +71,7 @@ export default function Home() {
   const [nicheChoice, setNicheChoice] = useState<NicheId | "auto">("auto");
   const [captionChoice, setCaptionChoice] = useState<CaptionStyleId | "auto">("auto");
   const [effect, setEffect] = useState<VideoEffectId>("none");
+  const [format, setFormat] = useState<VideoFormat>("landscape");
   const [music, setMusic] = useState<MusicChoice | null>(null);
   const [musicVolume, setMusicVolume] = useState(DEFAULT_MUSIC_VOLUME);
   const [busy, setBusy] = useState<Busy>(null);
@@ -243,12 +252,13 @@ export default function Home() {
     if (!checkInputs() || !audio) return;
     setResult(null);
     begin("render", "Uploading files…");
-    const renderedTranscript = transcript;
+    const rendered = { transcript, format };
 
     const style = {
       niche: nicheChoice,
       captionStyle: captionChoice,
       effect,
+      format,
       imageStats: images.map((i) => i.stats),
       musicVolume,
     };
@@ -271,6 +281,7 @@ export default function Home() {
         body.append("niche", style.niche);
         body.append("captionStyle", style.captionStyle);
         body.append("effect", style.effect);
+        body.append("format", style.format);
         if (music) {
           body.append("music", music.file);
           body.append("musicVolume", String(musicVolume));
@@ -298,7 +309,7 @@ export default function Home() {
             setMessage(ev.message);
             setProgress(ev.stage === "rendering" ? (ev.progress ?? 0) : null);
           } else if (ev.type === "done") {
-            setResult({ ...ev, transcript: renderedTranscript });
+            setResult({ ...ev, ...rendered });
             finished = true;
           } else if (ev.type === "detached") {
             // Vercel: the render runs on in a sandbox; follow it by polling.
@@ -310,7 +321,7 @@ export default function Home() {
               setMessage(msg);
               setProgress(p);
             });
-            setResult({ type: "done", url: out.url, downloadUrl: out.downloadUrl, ...meta, transcript: renderedTranscript });
+            setResult({ type: "done", url: out.url, downloadUrl: out.downloadUrl, ...meta, ...rendered });
             finished = true;
           } else {
             throw new Error(ev.message);
@@ -333,6 +344,7 @@ export default function Home() {
       timing: freshTiming,
       imageStats: images.map((i) => i.stats),
       effect,
+      format,
     });
     return buildVideoProps(
       freshTiming,
@@ -341,7 +353,7 @@ export default function Home() {
       images.map((i) => i.url),
       music ? { src: music.url, volume: musicVolume } : null,
     );
-  }, [freshTiming, audio, images, niche, captionStyle, effect, music, musicVolume]);
+  }, [freshTiming, audio, images, niche, captionStyle, effect, format, music, musicVolume]);
 
   const current = stepIndex(stage);
   const detectedLabel =
@@ -352,7 +364,7 @@ export default function Home() {
       <h1>Auto Video Editor</h1>
       <p className="lede">
         Upload your narration, its transcript and {MIN_IMAGES}–{MAX_IMAGES} images. The style (transitions, colour,
-        effects, captions) is matched to your topic automatically. Preview it here, then render a 1920×1080 MP4.
+        effects, captions) is matched to your topic automatically. Preview it here, then render a 1920×1080 video or a vertical 1080×1920 Short.
       </p>
 
       <form onSubmit={onRender}>
@@ -387,6 +399,29 @@ export default function Home() {
           </div>
         ) : null}
         <div className="field">
+          <span className="label">Format</span>
+          <div className="format-picker" role="radiogroup" aria-label="Format">
+            {VIDEO_FORMATS.map((f) => (
+              <button
+                type="button"
+                key={f}
+                role="radio"
+                aria-checked={format === f}
+                className={`format-card${format === f ? " selected" : ""}`}
+                onClick={() => setFormat(f)}
+                disabled={!!busy}
+              >
+                <span className={`format-shape ${f}`} aria-hidden />
+                <span className="format-text">
+                  <strong>{FORMAT_LABELS[f].title}</strong>
+                  <span>{FORMAT_LABELS[f].detail}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="field">
           <label htmlFor="audio">1. Narration audio</label>
           <input
             id="audio"
@@ -415,6 +450,7 @@ export default function Home() {
             3. Images ({MIN_IMAGES}–{MAX_IMAGES})
           </span>
           <ImageGallery
+            format={format}
             images={images}
             onAdd={addImages}
             onRemove={removeImage}
@@ -529,7 +565,7 @@ export default function Home() {
             <ol>
               {STEPS.map((s, i) => (
                 <li key={s.stage} className={i < current ? "finished" : i === current ? "current" : ""}>
-                  {s.label}
+                  {s.stage === "rendering" ? `Render ${FORMAT_SIZE[format].width}×${FORMAT_SIZE[format].height} MP4` : s.label}
                   {i < current ? (s.stage === "transcribing" && freshTiming ? " ✓ (from preview)" : " ✓") : ""}
                   {i === current && s.stage === "rendering" && progress !== null
                     ? ` — ${Math.round(progress * 100)}%`
@@ -565,8 +601,8 @@ export default function Home() {
 
       {result ? (
         <section className="result">
-          <h2>Rendered MP4</h2>
-          <video src={result.url} controls playsInline />
+          <h2>{result.format === "shorts" ? "Rendered Short" : "Rendered MP4"}</h2>
+          <video src={result.url} controls playsInline className={result.format === "shorts" ? "vertical" : undefined} />
           <a className="button" href={result.downloadUrl} download>
             Download MP4
           </a>
@@ -579,6 +615,7 @@ export default function Home() {
             transcript={result.transcript}
             niche={result.niche}
             durationInSeconds={result.durationInSeconds}
+            format={result.format}
             accessKey={accessKey}
           />
         </section>

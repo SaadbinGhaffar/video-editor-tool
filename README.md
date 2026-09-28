@@ -12,6 +12,11 @@ weave), **Black & white**, **Dreamy glow** (highlight bloom, light leaks) or **V
 layers; the niche's transitions, motion and captions stay. Defined in `lib/videoEffects.ts`
 and drawn by `remotion/videoEffects.tsx`. Each adds roughly 10–35% to render time.
 
+**Format:** a regular **YouTube video** (16:9, 1920×1080) or a **YouTube Short** (9:16,
+1080×1920). Shorts get shorter caption groups (up to 3 words) placed above YouTube's
+on-screen title and buttons, landscape photos shown whole over a blurred backdrop, no
+letterbox bars, and a shorter SEO title/description led by #shorts.
+
 **Preview** (optional) runs only the timing step. It then plays the exact composition
 in-browser with `@remotion/player`, using your local files. Changing the style, the caption
 look, or the image order updates the preview instantly. **Render MP4** reuses the preview's

@@ -2,7 +2,7 @@ import "server-only";
 import { aiProvider } from "./llm";
 import { NICHE_LABELS } from "./niche";
 import { basicSeo, cleanSeo } from "./seoText";
-import type { NicheId, SeoPack } from "./types";
+import type { NicheId, SeoPack, VideoFormat } from "./types";
 
 const SYSTEM_PROMPT = `You are a YouTube SEO specialist. From a video's narration transcript, write metadata that ranks in YouTube and Google search and earns clicks without misleading anyone.
 Rules:
@@ -13,14 +13,23 @@ Rules:
 - tags: 10–15 search phrases people would type, most important first, each under 30 characters, lowercase.
 Reply with JSON only: {"title": "...", "description": "...", "hashtags": ["..."], "tags": ["..."]}`;
 
+/** Shorts are browsed on phones: shorter title and description, and #shorts. */
+const SHORTS_RULES = `This is a YouTube Short (vertical video). Override the lengths above: title 40–60 characters; description 60–120 words in 2–3 short paragraphs plus the call to action; the first hashtag must be "shorts".`;
+
 /**
  * YouTube title, description and tags for a rendered video, written by the
  * configured AI model from the transcript. Falls back to a simple offline
  * version if no model is configured or the call fails, so it never errors.
  */
-export async function writeSeo(transcript: string, niche: NicheId, durationInSeconds: number): Promise<SeoPack> {
+export async function writeSeo(
+  transcript: string,
+  niche: NicheId,
+  durationInSeconds: number,
+  format: VideoFormat = "landscape",
+): Promise<SeoPack> {
+  const shorts = format === "shorts";
   const provider = aiProvider();
-  if (!provider) return basicSeo(transcript, niche);
+  if (!provider) return basicSeo(transcript, niche, shorts);
 
   const model = provider.seoModel;
   try {
@@ -34,18 +43,18 @@ export async function writeSeo(transcript: string, niche: NicheId, durationInSec
       max_completion_tokens: 1500,
       response_format: { type: "json_object" },
       messages: [
-        { role: "system", content: SYSTEM_PROMPT },
+        { role: "system", content: shorts ? `${SYSTEM_PROMPT}\n\n${SHORTS_RULES}` : SYSTEM_PROMPT },
         {
           role: "user",
-          content: `Niche: ${NICHE_LABELS[niche]}. Video length: ${minutes ? `${minutes} min ` : ""}${seconds} s.\n\nTranscript:\n${transcript.slice(0, 12_000)}`,
+          content: `Format: ${shorts ? "YouTube Short" : "YouTube video"}. Niche: ${NICHE_LABELS[niche]}. Video length: ${minutes ? `${minutes} min ` : ""}${seconds} s.\n\nTranscript:\n${transcript.slice(0, 12_000)}`,
         },
       ],
     });
-    const pack = cleanSeo(JSON.parse(res.choices[0]?.message?.content ?? "null"));
+    const pack = cleanSeo(JSON.parse(res.choices[0]?.message?.content ?? "null"), shorts);
     if (pack) return { ...pack, source: "llm" };
     console.warn("[seo] model reply was unusable, using the basic version");
   } catch (err) {
     console.warn(`[seo] ${model} failed, using the basic version:`, err instanceof Error ? err.message : err);
   }
-  return basicSeo(transcript, niche);
+  return basicSeo(transcript, niche, shorts);
 }

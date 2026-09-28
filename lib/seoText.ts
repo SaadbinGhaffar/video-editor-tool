@@ -51,7 +51,7 @@ function clip(text: string, max: number): string {
 const hashtag = (t: string) => t.replace(/^#/, "").replace(/[^\p{L}\p{N}_]/gu, "");
 
 /** Validate and tidy what the model returned; null if it's unusable. */
-export function cleanSeo(raw: unknown): Omit<SeoPack, "source"> | null {
+export function cleanSeo(raw: unknown, shorts = false): Omit<SeoPack, "source"> | null {
   if (!raw || typeof raw !== "object") return null;
   const r = raw as Record<string, unknown>;
   const title = typeof r.title === "string" ? clip(tidy(r.title).replace(/^["']|["']$/g, ""), TITLE_MAX) : "";
@@ -60,8 +60,14 @@ export function cleanSeo(raw: unknown): Omit<SeoPack, "source"> | null {
 
   const tags = fitTags(uniqueStrings(r.tags).map((t) => tidy(t).toLowerCase().replace(/[<>,]/g, "")).filter(Boolean));
   const rawHashtags = Array.isArray(r.hashtags) ? r.hashtags : [];
-  const hashtags = uniqueStrings(rawHashtags.map((h) => (typeof h === "string" ? hashtag(h) : h))).slice(0, 5);
+  const hashtags = withShorts(uniqueStrings(rawHashtags.map((h) => (typeof h === "string" ? hashtag(h) : h))), shorts);
   return { title, description: composeDescription(body, tags, hashtags), tags };
+}
+
+/** Up to 5 hashtags; Shorts lead with #shorts. */
+function withShorts(hashtags: string[], shorts: boolean): string[] {
+  const rest = shorts ? hashtags.filter((h) => h.toLowerCase() !== "shorts") : hashtags;
+  return (shorts ? ["shorts", ...rest] : rest).slice(0, 5);
 }
 
 /** The description ends with the tags and then the hashtags, so both go wherever it's pasted. */
@@ -112,14 +118,14 @@ function fitTags(tags: string[]): string[] {
  * the opening sentence, the first few sentences as the description, and tags
  * from the transcript's most frequent meaningful words.
  */
-export function basicSeo(transcript: string, niche: NicheId): SeoPack {
+export function basicSeo(transcript: string, niche: NicheId, shorts = false): SeoPack {
   const sentences = tidy(transcript)
     .replace(/\s+/g, " ")
     .split(/(?<=[.!?])\s+/)
     .map((s) => s.replace(/\b(um+|uh+|erm)\b,?\s*/gi, "").trim())
     .filter((s) => s.split(" ").length >= 3);
   const first = (sentences[0] ?? tidy(transcript)).replace(/[.!?]+$/, "");
-  const title = clip(first.charAt(0).toUpperCase() + first.slice(1), 70);
+  const title = clip(first.charAt(0).toUpperCase() + first.slice(1), shorts ? 60 : 70);
 
   const counts = new Map<string, number>();
   for (const w of transcript.toLowerCase().match(/\p{L}[\p{L}'-]{3,}/gu) ?? []) {
@@ -130,8 +136,8 @@ export function basicSeo(transcript: string, niche: NicheId): SeoPack {
   const label = NICHE_LABELS[niche].toLowerCase();
   const tags = fitTags([...(niche === "general" ? [] : [label]), ...keywords]);
 
-  const summary = sentences.slice(0, 4).join(" ");
-  const hashtags = [...new Set([...NICHE_HASHTAGS[niche], ...keywords.slice(0, 2)].map(hashtag))].slice(0, 5);
+  const summary = sentences.slice(0, shorts ? 2 : 4).join(" ");
+  const hashtags = withShorts([...new Set([...NICHE_HASHTAGS[niche], ...keywords.slice(0, 2)].map(hashtag))], shorts);
   const body = [
     summary || tidy(transcript),
     "If you enjoyed this video, like it, subscribe for more, and tell us what you think in the comments.",

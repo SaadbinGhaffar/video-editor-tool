@@ -6,10 +6,11 @@ import { fontFamily } from "./fonts";
 type Look = CaptionLook;
 const LOOKS = CAPTION_LOOKS;
 
-export const Captions: React.FC<{ cues: CaptionCue[]; styleId: CaptionStyleId; bottom: number }> = ({
+export const Captions: React.FC<{ cues: CaptionCue[]; styleId: CaptionStyleId; bottom: number; sidePadding: number }> = ({
   cues,
   styleId,
   bottom,
+  sidePadding,
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
@@ -26,18 +27,21 @@ export const Captions: React.FC<{ cues: CaptionCue[]; styleId: CaptionStyleId; b
             "linear-gradient(to top, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.25) 28%, rgba(0,0,0,0) 45%)",
         }}
       />
-      {cue ? <Cue key={cue.start} cue={cue} t={t} frame={frame} fps={fps} look={look} bottom={bottom} /> : null}
+      {cue ? (
+        <Cue key={cue.start} cue={cue} t={t} frame={frame} fps={fps} look={look} bottom={bottom} side={sidePadding} />
+      ) : null}
     </AbsoluteFill>
   );
 };
 
-const Cue: React.FC<{ cue: CaptionCue; t: number; frame: number; fps: number; look: Look; bottom: number }> = ({
+const Cue: React.FC<{ cue: CaptionCue; t: number; frame: number; fps: number; look: Look; bottom: number; side: number }> = ({
   cue,
   t,
   frame,
   fps,
   look,
   bottom,
+  side,
 }) => {
   const local = frame - Math.round(cue.start * fps);
   const enter = entrance(look.enter, local, fps);
@@ -61,7 +65,7 @@ const Cue: React.FC<{ cue: CaptionCue; t: number; frame: number; fps: number; lo
         alignItems: "center",
         // Title-safe side margins; bottom margin keeps text clear of YouTube's
         // progress bar and controls (and of the letterbox bar when present).
-        padding: `0 140px ${bottom}px`,
+        padding: `0 ${side}px ${bottom}px`,
       }}
     >
       <div
@@ -73,7 +77,7 @@ const Cue: React.FC<{ cue: CaptionCue; t: number; frame: number; fps: number; lo
           lineHeight: 1.12,
           textAlign: "center",
           color: look.color,
-          maxWidth: 1640,
+          maxWidth: "100%",
           textTransform: look.uppercase ? "uppercase" : "none",
           letterSpacing: look.letterSpacing,
           opacity: enter.opacity,

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { NicheId, SeoPack } from "@/lib/types";
+import type { NicheId, SeoPack, VideoFormat } from "@/lib/types";
 import { accessHeaders } from "./transport";
 
 /**
@@ -12,11 +12,13 @@ export function SeoPanel({
   transcript,
   niche,
   durationInSeconds,
+  format,
   accessKey,
 }: {
   transcript: string;
   niche: NicheId;
   durationInSeconds: number;
+  format: VideoFormat;
   accessKey: string;
 }) {
   const [seo, setSeo] = useState<SeoPack | null>(null);
@@ -30,7 +32,7 @@ export function SeoPanel({
       const res = await fetch("/api/seo", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...accessHeaders(accessKey) },
-        body: JSON.stringify({ transcript, niche, durationInSeconds }),
+        body: JSON.stringify({ transcript, niche, durationInSeconds, format }),
       });
       const data = await res.json().catch(() => null);
       if (!res.ok || !data?.title) throw new Error(data?.message ?? `The server returned an error (${res.status}).`);
@@ -40,7 +42,7 @@ export function SeoPanel({
     } finally {
       setLoading(false);
     }
-  }, [transcript, niche, durationInSeconds, accessKey]);
+  }, [transcript, niche, durationInSeconds, format, accessKey]);
 
   useEffect(() => {
     load();
@@ -50,7 +52,7 @@ export function SeoPanel({
 
   return (
     <div className="seo">
-      <h3>YouTube title &amp; description</h3>
+      <h3>{format === "shorts" ? "YouTube Shorts" : "YouTube"} title &amp; description</h3>
       {loading && !seo ? <p className="hint">Writing an SEO title and description from your transcript…</p> : null}
       {error ? (
         <div className="error" role="alert">

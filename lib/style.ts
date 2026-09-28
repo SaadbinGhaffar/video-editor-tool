@@ -1,8 +1,11 @@
+import { groupIntoCues } from "./align";
 import { CAPTION_LOOKS, FONTS } from "./captionLooks";
 import {
   CAPTION_STYLES,
+  FORMAT_SIZE,
   FPS,
   type BackgroundMusic,
+  type CaptionCue,
   type CaptionStyleId,
   type ImageStats,
   type MainVideoProps,
@@ -12,8 +15,28 @@ import {
   type Timing,
   type TransitionKind,
   type VideoEffectId,
+  type VideoFormat,
 } from "./types";
 import { effectLook } from "./videoEffects";
+
+/**
+ * Whether an image is shown whole over a blurred copy of itself instead of
+ * cover-cropped: when its shape is far from the frame's (portrait photos in a
+ * landscape video, landscape photos in a Short).
+ */
+export function needsBlurFill(aspect: number, format: VideoFormat): boolean {
+  const { width, height } = FORMAT_SIZE[format];
+  const frame = width / height;
+  return Math.max(frame / aspect, aspect / frame) > 1.37;
+}
+
+/** Shorts are 1080 px wide, so captions show fewer words at a time. */
+function shortsCues(cues: CaptionCue[]): CaptionCue[] {
+  return groupIntoCues(
+    cues.flatMap((c) => c.words),
+    { maxWords: 3, maxChars: 14 },
+  );
+}
 
 // Pure and deterministic: the browser (live preview) and the server (render)
 // both call planStyle with the same inputs and get the same plan.
@@ -163,9 +186,10 @@ export type StyleInputs = {
   /** One entry per image, in order; null when stats are unknown. */
   imageStats: (ImageStats | null)[];
   effect?: VideoEffectId | null;
+  format?: VideoFormat;
 };
 
-export function planStyle({ niche, caption, timing, imageStats, effect = "none" }: StyleInputs): StylePlan {
+export function planStyle({ niche, caption, timing, imageStats, effect = "none", format = "landscape" }: StyleInputs): StylePlan {
   const preset = NICHE_PRESETS[niche];
   const look = effectLook(effect ?? "none");
   const seed = hashString(timing.cues.map((c) => c.words.map((w) => w.text).join(" ")).join("|") + niche);
@@ -196,7 +220,7 @@ export function planStyle({ niche, caption, timing, imageStats, effect = "none" 
   const scenes: SceneLook[] = timing.scenes.map((_, i) => {
     const stats = imageStats[i] ?? null;
     return {
-      fit: stats && stats.aspect < 1.3 ? "blur-fill" : "cover",
+      fit: stats && needsBlurFill(stats.aspect, format) ? "blur-fill" : "cover",
       // A whole-video effect brings its own grade; keep only the per-image exposure/colour balancing.
       filter: gradeFor(look ? NEUTRAL : preset.grade, stats),
     };
@@ -205,11 +229,13 @@ export function planStyle({ niche, caption, timing, imageStats, effect = "none" 
   return {
     niche,
     caption: caption ?? preset.caption,
+    format,
     effect: look ? (effect ?? "none") : "none",
     transitionFrames,
     transitions,
     kenBurns: { ...preset.kenBurns, zoom: preset.kenBurns.zoom * clamp(1 / pace, 0.85, 1.2) },
-    effects: look ? NO_EFFECTS : preset.effects,
+    // Letterbox bars suit widescreen only.
+    effects: look ? NO_EFFECTS : format === "shorts" ? { ...preset.effects, letterbox: false } : preset.effects,
     scenes,
   };
 }
@@ -239,7 +265,7 @@ export function buildVideoProps(
     audioSrc,
     audioOffset: timing.audioOffset,
     durationInSeconds: timing.durationInSeconds,
-    cues: timing.cues,
+    cues: plan.format === "shorts" ? shortsCues(timing.cues) : timing.cues,
     scenes: timing.scenes.map((s, i) => ({ ...s, ...looks[i], src: imageSrcs[i] })),
     style,
   };

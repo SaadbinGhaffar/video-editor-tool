@@ -1,10 +1,10 @@
 import { Composition } from "remotion";
 import { planStyle, buildVideoProps } from "../lib/style";
-import { FPS, VIDEO_HEIGHT, VIDEO_WIDTH, type MainVideoProps, type Timing } from "../lib/types";
+import { FORMAT_SIZE, FPS, type MainVideoProps, type Timing } from "../lib/types";
 import { MainVideo } from "./MainVideo";
 
 // Sample props so `npm run remotion:studio` shows something without the upload
-// flow. Change `niche` (or add `effect`) to preview another style.
+// flow. Change `niche` (or add `effect`, or `format: "shorts"`) to preview another style.
 const sampleTiming: Timing = {
   durationInSeconds: 8,
   audioOffset: 0,
@@ -52,13 +52,15 @@ export const RemotionRoot: React.FC = () => (
   <Composition
     id="MainVideo"
     component={MainVideo}
-    width={VIDEO_WIDTH}
-    height={VIDEO_HEIGHT}
+    width={FORMAT_SIZE.landscape.width}
+    height={FORMAT_SIZE.landscape.height}
     fps={FPS}
     durationInFrames={Math.ceil(defaultProps.durationInSeconds * FPS)}
     defaultProps={defaultProps}
+    // Size follows the chosen format (landscape video or vertical Short).
     calculateMetadata={({ props }) => ({
       durationInFrames: Math.max(1, Math.ceil(props.durationInSeconds * FPS)),
+      ...FORMAT_SIZE[props.style.format ?? "landscape"],
     })}
   />
 );

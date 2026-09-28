@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { detectNicheFromText } from "../lib/niche";
 import { estimateRenderMinutes } from "../lib/renderBudget";
 import { basicSeo, cleanSeo, TITLE_MAX } from "../lib/seoText";
-import { buildVideoProps, encoderCrf, planStyle } from "../lib/style";
+import { buildVideoProps, encoderCrf, needsBlurFill, planStyle } from "../lib/style";
 import { FPS, VIDEO_EFFECTS, type Timing } from "../lib/types";
 
 // 1. Niche detection on clearly-themed scripts.
@@ -131,6 +131,33 @@ const timing = (images: number, duration = 30, wpm = 150): Timing => ({
   assert.ok(basic.title.startsWith("Hi, I'm John Smith, and today we are testing") && basic.title.length <= 70);
   assert.ok(basic.tags.includes("editor") && basic.description.includes("\n\nTags: ") && basic.description.includes("#tech"));
   console.log("ok  seo helpers:", basic.title);
+}
+
+// 6. YouTube Shorts (9:16).
+{
+  const landscapePhoto = { luma: 0.46, saturation: 0.3, warmth: 0, aspect: 1.5 };
+  const portraitPhoto = { ...landscapePhoto, aspect: 0.66 };
+  const t = timing(2);
+  const wide = planStyle({ niche: "documentary", timing: t, imageStats: [landscapePhoto, portraitPhoto] });
+  const short = planStyle({ niche: "documentary", timing: t, imageStats: [landscapePhoto, portraitPhoto], format: "shorts" });
+  assert.equal(wide.format, "landscape");
+  assert.deepEqual(wide.scenes.map((s) => s.fit), ["cover", "blur-fill"]);
+  assert.deepEqual(short.scenes.map((s) => s.fit), ["blur-fill", "cover"], "in a Short, landscape photos are fitted");
+  assert.ok(wide.effects.letterbox && !short.effects.letterbox, "no letterbox bars on vertical video");
+  assert.ok(needsBlurFill(0.75, "landscape") && !needsBlurFill(0.75, "shorts"));
+
+  const words = "one two three four five six seven eight".split(" ").map((text, i) => ({ text, start: i * 0.3, end: i * 0.3 + 0.25 }));
+  const cues = [{ start: 0, end: 2.4, words }];
+  const tt: Timing = { ...timing(2, 2.4), cues };
+  const shortProps = buildVideoProps(tt, planStyle({ niche: "general", timing: tt, imageStats: [null, null], format: "shorts" }), "a.mp3", ["1.jpg", "2.jpg"]);
+  assert.ok(shortProps.cues.every((c) => c.words.length <= 3), "Shorts captions show at most 3 words");
+  assert.equal(shortProps.cues.flatMap((c) => c.words).length, words.length, "no words lost when regrouping");
+  assert.equal(shortProps.style.format, "shorts");
+
+  const seo = cleanSeo({ title: "A short title for a Short", description: "d ".repeat(30), hashtags: ["tech", "Shorts"], tags: [] }, true)!;
+  assert.ok(seo.description.endsWith("#shorts #tech"), "Shorts lead with #shorts, once");
+  assert.ok(basicSeo("This is a quick tip about coding faster. Use shortcuts every day.", "tech", true).description.includes("#shorts"));
+  console.log("ok  shorts: fit", short.scenes.map((s) => s.fit).join("/"), "· cues", shortProps.cues.map((c) => c.words.length).join(","));
 }
 
 console.log("all style checks passed");

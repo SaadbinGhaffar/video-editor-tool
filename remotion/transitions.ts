@@ -7,7 +7,7 @@ import { pushCut } from "@remotion/transitions/push-cut";
 import { slide, type SlideDirection } from "@remotion/transitions/slide";
 import { wipe, type WipeDirection } from "@remotion/transitions/wipe";
 import { Easing } from "remotion";
-import { VIDEO_HEIGHT, VIDEO_WIDTH, type TransitionKind } from "../lib/types";
+import type { TransitionKind } from "../lib/types";
 import { dipToBlack, flashCut, glitch, whip, zoomThrough } from "./customTransitions";
 
 const SLIDES: SlideDirection[] = ["from-right", "from-bottom", "from-left", "from-top"];
@@ -15,7 +15,12 @@ const WIPES: WipeDirection[] = ["from-left", "from-top-right", "from-bottom", "f
 
 /** The presentation for the `index`-th cut. Directions vary by index so repeats don't look identical. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function presentationFor(kind: TransitionKind, index: number): TransitionPresentation<any> {
+export function presentationFor(
+  kind: TransitionKind,
+  index: number,
+  size: { width: number; height: number },
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+): TransitionPresentation<any> {
   switch (kind) {
     case "fade":
       return fade();
@@ -26,7 +31,7 @@ export function presentationFor(kind: TransitionKind, index: number): Transition
     case "flip":
       return flip({ direction: index % 2 ? "from-left" : "from-right" });
     case "iris":
-      return iris({ width: VIDEO_WIDTH, height: VIDEO_HEIGHT });
+      return iris(size);
     case "push":
       return pushCut();
     case "zoom":

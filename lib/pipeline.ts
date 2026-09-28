@@ -15,6 +15,7 @@ import {
   MIN_SCENE_SECONDS,
   NICHES,
   VIDEO_EFFECTS,
+  VIDEO_FORMATS,
   type CaptionCue,
   type CaptionStyleId,
   type ImageStats,
@@ -23,6 +24,7 @@ import {
   type Timing,
   type TimedWord,
   type VideoEffectId,
+  type VideoFormat,
 } from "./types";
 
 const AUDIO_EXT = new Set([".mp3", ".wav", ".m4a"]);
@@ -293,6 +295,10 @@ export function parseCaptionStyle(v: unknown): CaptionStyleId | null {
 
 export function parseVideoEffect(v: unknown): VideoEffectId {
   return VIDEO_EFFECTS.includes(v as VideoEffectId) ? (v as VideoEffectId) : "none";
+}
+
+export function parseVideoFormat(v: unknown): VideoFormat {
+  return VIDEO_FORMATS.includes(v as VideoFormat) ? (v as VideoFormat) : "landscape";
 }
 
 /** Image colour stats measured in the browser; unknown/invalid entries become null. */

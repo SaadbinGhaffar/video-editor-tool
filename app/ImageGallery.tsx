@@ -1,18 +1,21 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { MAX_IMAGES, type ImageStats } from "@/lib/types";
+import { needsBlurFill } from "@/lib/style";
+import { MAX_IMAGES, type ImageStats, type VideoFormat } from "@/lib/types";
 
 export type ImageItem = { id: number; file: File; url: string; stats: ImageStats | null };
 
 /** Multi-image picker: drop or browse to add, drag or use the arrows to reorder. */
 export function ImageGallery({
+  format,
   images,
   onAdd,
   onRemove,
   onReorder,
   disabled,
 }: {
+  format: VideoFormat;
   images: ImageItem[];
   onAdd: (files: File[]) => void;
   onRemove: (id: number) => void;
@@ -93,7 +96,7 @@ export function ImageGallery({
             >
               <div className="tile-thumb" style={{ backgroundImage: `url(${img.url})` }}>
                 <span className="tile-num">{i + 1}</span>
-                {img.stats && img.stats.aspect < 1.3 ? <span className="tile-tag">fit</span> : null}
+                {img.stats && needsBlurFill(img.stats.aspect, format) ? <span className="tile-tag">fit</span> : null}
               </div>
               <div className="tile-actions">
                 <button type="button" aria-label={`Move image ${i + 1} earlier`} onClick={() => move(i, i - 1)} disabled={disabled || i === 0}>
@@ -116,8 +119,9 @@ export function ImageGallery({
         </ol>
       ) : null}
       <p className="hint">
-        Images play in this order, spread across the narration with cuts on sentence breaks. Portrait photos
-        (marked “fit”) are shown whole over a blurred backdrop instead of being cropped.
+        Images play in this order, spread across the narration with cuts on sentence breaks.{" "}
+        {format === "shorts" ? "Landscape" : "Portrait"} photos (marked “fit”) are shown whole over a blurred backdrop
+        instead of being cropped.
       </p>
     </div>
   );

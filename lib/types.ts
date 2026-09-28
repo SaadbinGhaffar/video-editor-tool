@@ -12,8 +12,13 @@ export type CaptionCue = {
   words: TimedWord[];
 };
 
-export const VIDEO_WIDTH = 1920;
-export const VIDEO_HEIGHT = 1080;
+/** A regular (landscape) YouTube video or a vertical YouTube Short. */
+export const VIDEO_FORMATS = ["landscape", "shorts"] as const;
+export type VideoFormat = (typeof VIDEO_FORMATS)[number];
+export const FORMAT_SIZE: Record<VideoFormat, { width: number; height: number }> = {
+  landscape: { width: 1920, height: 1080 },
+  shorts: { width: 1080, height: 1920 },
+};
 export const FPS = 30;
 export const MIN_IMAGES = 2;
 export const MAX_IMAGES = 10;
@@ -79,6 +84,7 @@ export type SceneLook = {
 export type StylePlan = {
   niche: NicheId;
   caption: CaptionStyleId;
+  format: VideoFormat;
   /** When not "none", replaces the niche's grade and finishing effects for the whole video. */
   effect: VideoEffectId;
   /** Length of every image-to-image transition, in frames (even). */

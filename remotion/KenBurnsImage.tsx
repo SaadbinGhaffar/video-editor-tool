@@ -99,7 +99,8 @@ const backdropCache = new Map<string, string | "css">();
  * canvas (e.g. served cross-origin without CORS), it falls back to a CSS blur.
  */
 const BlurredBackdrop: React.FC<{ src: string; filter: string }> = ({ src, filter }) => {
-  const key = `${src}|${filter}`;
+  const { width, height } = useVideoConfig();
+  const key = `${src}|${filter}|${width}x${height}`;
   const [url, setUrl] = useState(() => backdropCache.get(key) ?? null);
   const [handle] = useState(() => (backdropCache.has(key) ? null : delayRender(`Blurring backdrop for ${src}`)));
 
@@ -113,8 +114,9 @@ const BlurredBackdrop: React.FC<{ src: string; filter: string }> = ({ src, filte
     img.crossOrigin = "anonymous";
     img.onload = () => {
       try {
-        const w = 192;
-        const h = 108;
+        // A tenth of the frame, in its shape.
+        const w = Math.round(width / 10);
+        const h = Math.round(height / 10);
         const canvas = document.createElement("canvas");
         canvas.width = w;
         canvas.height = h;
@@ -132,7 +134,7 @@ const BlurredBackdrop: React.FC<{ src: string; filter: string }> = ({ src, filte
     };
     img.onerror = () => done("css");
     img.src = src;
-  }, [key, src, filter, url]);
+  }, [key, src, filter, url, width, height]);
 
   useEffect(() => {
     if (url && handle !== null) continueRender(handle);

@@ -20,6 +20,7 @@ import {
   parseNiche,
   parseTiming,
   parseVideoEffect,
+  parseVideoFormat,
   saveUpload,
   toUserMessage,
 } from "@/lib/pipeline";
@@ -42,6 +43,7 @@ type Job = {
   niche: ReturnType<typeof parseNiche>;
   caption: ReturnType<typeof parseCaptionStyle>;
   effect: ReturnType<typeof parseVideoEffect>;
+  format: ReturnType<typeof parseVideoFormat>;
   imageStats: (ImageStats | null)[];
   musicVolume: number;
 } & (
@@ -73,6 +75,7 @@ async function readJob(req: Request): Promise<Job | Response> {
         niche: parseNiche(b.niche),
         caption: parseCaptionStyle(b.captionStyle),
         effect: parseVideoEffect(b.effect),
+        format: parseVideoFormat(b.format),
         imageStats: parseImageStats(JSON.stringify(b.imageStats ?? null), imageUrls.length),
       };
     }
@@ -95,6 +98,7 @@ async function readJob(req: Request): Promise<Job | Response> {
       niche: parseNiche(form.get("niche")),
       caption: parseCaptionStyle(form.get("captionStyle")),
       effect: parseVideoEffect(form.get("effect")),
+      format: parseVideoFormat(form.get("format")),
       imageStats: parseImageStats(form.get("imageStats") as string | null, images.length),
     };
   } catch {
@@ -133,7 +137,14 @@ export async function POST(req: Request) {
         const t = timing;
         // Same pure planner the browser preview uses, so the render matches it.
         const planFor = (imageStats: (ImageStats | null)[]) =>
-          planStyle({ niche: job.niche ?? t.detected.niche, caption: job.caption, timing: t, imageStats, effect: job.effect });
+          planStyle({
+            niche: job.niche ?? t.detected.niche,
+            caption: job.caption,
+            timing: t,
+            imageStats,
+            effect: job.effect,
+            format: job.format,
+          });
         const meta = {
           durationInSeconds: t.durationInSeconds,
           words: t.words,

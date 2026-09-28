@@ -14,7 +14,7 @@ import { EffectLayer, EffectOverlays } from "./videoEffects";
 const resolveSrc = (src: string) => (/^(https?:|data:|blob:)/.test(src) ? src : staticFile(src));
 
 export const MainVideo: React.FC<MainVideoProps> = ({ audioSrc, audioOffset, scenes, cues, style, music }) => {
-  const { fps, durationInFrames } = useVideoConfig();
+  const { fps, durationInFrames, width, height } = useVideoConfig();
 
   // Each transition is centred on its cut point: scene i (i > 0) starts half a
   // transition before its cut, and every scene but the last runs half a
@@ -30,8 +30,10 @@ export const MainVideo: React.FC<MainVideoProps> = ({ audioSrc, audioOffset, sce
     return Math.max(transition + 1, to - from);
   });
 
-  const letterbox = effectLook(style.effect)?.letterbox || (style.effects.letterbox ? LETTERBOX_HEIGHT : 0);
-  const captionBottom = letterbox ? letterbox + 90 : 130;
+  const shorts = style.format === "shorts";
+  const letterbox = shorts ? 0 : effectLook(style.effect)?.letterbox || (style.effects.letterbox ? LETTERBOX_HEIGHT : 0);
+  // Shorts: sit above the title, channel name and buttons YouTube overlays on the lower quarter.
+  const captionBottom = shorts ? 560 : letterbox ? letterbox + 90 : 130;
 
   return (
     <AbsoluteFill style={{ backgroundColor: "black" }}>
@@ -43,7 +45,7 @@ export const MainVideo: React.FC<MainVideoProps> = ({ audioSrc, audioOffset, sce
               <Fragment key={i}>
                 {i > 0 ? (
                   <TransitionSeries.Transition
-                    presentation={presentationFor(kind, i - 1)}
+                    presentation={presentationFor(kind, i - 1, { width, height })}
                     timing={timingFor(kind, transition)}
                   />
                 ) : null}
@@ -64,7 +66,7 @@ export const MainVideo: React.FC<MainVideoProps> = ({ audioSrc, audioOffset, sce
       <Effects effects={style.effects} cutFrames={cuts.slice(1, -1)} />
       <EffectOverlays effect={style.effect} cutFrames={cuts.slice(1, -1)} />
       {letterbox ? <Letterbox height={letterbox} /> : null}
-      <Captions cues={cues} styleId={style.caption} bottom={captionBottom} />
+      <Captions cues={cues} styleId={style.caption} bottom={captionBottom} sidePadding={shorts ? 70 : 140} />
       {audioSrc ? <Audio src={resolveSrc(audioSrc)} trimBefore={Math.round(audioOffset * fps)} /> : null}
       {music ? <BackgroundMusic music={music} cues={cues} resolve={resolveSrc} /> : null}
     </AbsoluteFill>
