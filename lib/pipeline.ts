@@ -2,6 +2,16 @@ import "server-only";
 import fs from "node:fs";
 import path from "node:path";
 import { alignTranscript, groupIntoCues, planSceneBoundaries, tokenizeTranscript } from "./align";
+import {
+  cleanAnimationPlan,
+  clampShare,
+  DEFAULT_ANIMATION_SHARE,
+  MAX_ANIMATION_DATA_CHARS,
+  MIN_ANIMATED_VIDEO_SECONDS,
+  planImageScenes,
+  planSegments,
+} from "./animation";
+import { planAnimation } from "./animation-llm";
 import { detectSpeechBounds, toWav16k } from "./audio";
 import { isBlobUrl } from "./deploy";
 import { aiProvider } from "./llm";
@@ -16,6 +26,8 @@ import {
   NICHES,
   VIDEO_EFFECTS,
   VIDEO_FORMATS,
+  type AnimationPlan,
+  type AnimationRequest,
   type CaptionCue,
   type CaptionStyleId,
   type ImageStats,
@@ -128,15 +140,29 @@ export async function saveUpload(file: File, dir: string, baseName: string): Pro
 const KEEP_BEFORE_FIRST_WORD = 0.35;
 const KEEP_AFTER_LAST_WORD = 0.9;
 
+/** Animated chunks on/off, how much of the video they cover and the user's data for them, from a form or JSON body. */
+export function parseAnimationRequest(enabled: unknown, data: unknown, share: unknown = null): AnimationRequest {
+  const on = enabled === true || enabled === "1" || enabled === "true";
+  const n = share === null || share === undefined || share === "" ? DEFAULT_ANIMATION_SHARE : Number(share);
+  return {
+    enabled: on,
+    share: clampShare(n),
+    data: on && typeof data === "string" ? data.trim().slice(0, MAX_ANIMATION_DATA_CHARS) : "",
+  };
+}
+
 /**
  * Transcribe, align the user's wording onto the timing, trim dead air at
- * either end, detect the niche, group cues and plan scene cuts.
+ * either end, detect the niche, group cues and plan scene cuts. With
+ * animated segments on, the requested share of the timeline becomes
+ * animated chunks spread between the photos, designed here too.
  */
 export async function computeTiming(
   audioPath: string,
   transcript: string,
   imageCount: number,
   workDir: string,
+  animationRequest: AnimationRequest = { enabled: false, share: DEFAULT_ANIMATION_SHARE, data: "" },
 ): Promise<Timing> {
   // Decode once up front: used for speech detection and by local whisper.
   // Best-effort: if ffmpeg isn't available (e.g. trimmed serverless bundle),
@@ -200,16 +226,43 @@ export async function computeTiming(
     end: Math.min(durationInSeconds, Math.max(0, w.end - audioOffset)),
   }));
 
-  const maxImages = Math.floor(durationInSeconds / MIN_SCENE_SECONDS);
-  if (imageCount > maxImages) {
-    throw new UserFacingError(
-      `The narration is only ${durationInSeconds.toFixed(1)} s long, which fits at most ${Math.max(MIN_IMAGES, maxImages)} images (each needs about ${MIN_SCENE_SECONDS} s on screen). Remove some images or use a longer recording.`,
-    );
+  let scenes: Timing["scenes"];
+  let animation: AnimationPlan | null = null;
+  if (animationRequest.enabled) {
+    if (durationInSeconds < MIN_ANIMATED_VIDEO_SECONDS) {
+      throw new UserFacingError(
+        `The narration is only ${durationInSeconds.toFixed(1)} s long. Animated segments need at least ${MIN_ANIMATED_VIDEO_SECONDS} s, so photos and animation can take turns. Turn them off or use a longer recording.`,
+      );
+    }
+    const segments = planSegments(words, durationInSeconds, animationRequest.share);
+    const photoParts = segments.filter((s) => s.kind === "images");
+    const planned = planImageScenes(words, photoParts, imageCount, MIN_SCENE_SECONDS);
+    if ("maxImages" in planned) {
+      const photoSeconds = photoParts.reduce((n, s) => n + s.end - s.start, 0);
+      throw new UserFacingError(
+        `With animated segments, the photos share ${photoSeconds.toFixed(0)} s of the video, which fits at most ${Math.max(MIN_IMAGES, planned.maxImages)} images (each needs about ${MIN_SCENE_SECONDS} s on screen). Remove some images or use a longer recording.`,
+      );
+    }
+    scenes = planned.scenes;
+    animation = await planAnimation({
+      words,
+      segments: segments.filter((s) => s.kind === "animated"),
+      transcript,
+      data: animationRequest.data,
+      niche: detected.niche,
+    });
+  } else {
+    const maxImages = Math.floor(durationInSeconds / MIN_SCENE_SECONDS);
+    if (imageCount > maxImages) {
+      throw new UserFacingError(
+        `The narration is only ${durationInSeconds.toFixed(1)} s long, which fits at most ${Math.max(MIN_IMAGES, maxImages)} images (each needs about ${MIN_SCENE_SECONDS} s on screen). Remove some images or use a longer recording.`,
+      );
+    }
+    const bounds = planSceneBoundaries(words, durationInSeconds, imageCount, MIN_SCENE_SECONDS);
+    scenes = Array.from({ length: imageCount }, (_, i) => ({ start: bounds[i], end: bounds[i + 1] }));
   }
 
   const cues = groupIntoCues(words);
-  const bounds = planSceneBoundaries(words, durationInSeconds, imageCount, MIN_SCENE_SECONDS);
-  const scenes = Array.from({ length: imageCount }, (_, i) => ({ start: bounds[i], end: bounds[i + 1] }));
   const spoken = words.length > 1 ? words[words.length - 1].end - words[0].start : durationInSeconds;
   const wpm = Math.round((words.length / Math.max(spoken, 1)) * 60);
 
@@ -218,6 +271,7 @@ export async function computeTiming(
     audioOffset,
     cues,
     scenes,
+    animation,
     words: words.length,
     wpm,
     detected,
@@ -245,17 +299,24 @@ const num = (v: unknown): v is number => typeof v === "number" && Number.isFinit
 
 /**
  * Validate timing the browser sends back from a preview, so a render can
- * skip re-transcribing. Returns null if anything is off (the caller then
- * recomputes it from the audio).
+ * skip re-transcribing. Returns null if anything is off, or if it was made
+ * with animated segments switched the other way (the caller then recomputes
+ * it from the audio).
  */
-export function parseTiming(raw: string | null, imageCount: number): Timing | null {
+export function parseTiming(raw: string | null, imageCount: number, animated = false): Timing | null {
   if (!raw) return null;
   try {
     const t = JSON.parse(raw) as Partial<Timing>;
     if (!num(t.durationInSeconds) || t.durationInSeconds <= 0 || t.durationInSeconds > 4 * 3600) return null;
     if (!num(t.audioOffset) || t.audioOffset < 0) return null;
-    if (!Array.isArray(t.scenes) || t.scenes.length !== imageCount) return null;
+    if (!Array.isArray(t.scenes) || t.scenes.length === 0 || t.scenes.length > 500) return null;
     if (!t.scenes.every((s) => num(s?.start) && num(s?.end) && s.end > s.start)) return null;
+    // Photo-only timing has exactly one scene per image; with animated segments images can repeat.
+    const animation = t.animation ? cleanAnimationPlan(t.animation, t.durationInSeconds) : null;
+    if (animated !== !!animation || (t.animation && !animation)) return null;
+    if (!animation && t.scenes.length !== imageCount) return null;
+    const scenes = t.scenes.map((s, i) => ({ start: s.start, end: s.end, image: s.image ?? i }));
+    if (!scenes.every((s) => Number.isInteger(s.image) && s.image >= 0 && s.image < imageCount)) return null;
     if (!Array.isArray(t.cues)) return null;
     const cues: CaptionCue[] = [];
     for (const c of t.cues) {
@@ -273,7 +334,8 @@ export function parseTiming(raw: string | null, imageCount: number): Timing | nu
     return {
       durationInSeconds: t.durationInSeconds,
       audioOffset: t.audioOffset,
-      scenes: t.scenes.map((s) => ({ start: s.start, end: s.end })),
+      scenes,
+      animation,
       cues,
       words: num(t.words) ? t.words : cues.reduce((n, c) => n + c.words.length, 0),
       wpm: num(t.wpm) ? t.wpm : 150,

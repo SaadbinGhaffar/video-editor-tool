@@ -1,8 +1,10 @@
 import { TransitionSeries } from "@remotion/transitions";
 import { Fragment } from "react";
 import { AbsoluteFill, Audio, staticFile, useVideoConfig } from "remotion";
+import { animationTheme } from "../lib/animation";
 import type { MainVideoProps } from "../lib/types";
 import { effectLook } from "../lib/videoEffects";
+import { AnimatedSegment } from "./AnimatedSegment";
 import { BackgroundMusic } from "./BackgroundMusic";
 import { Captions } from "./Captions";
 import { Effects, LETTERBOX_HEIGHT, Letterbox } from "./effects";
@@ -24,16 +26,22 @@ export const MainVideo: React.FC<MainVideoProps> = ({ audioSrc, audioOffset, sce
   const transition = half * 2;
   const cuts = scenes.map((s) => Math.round(s.start * fps));
   cuts.push(durationInFrames);
+  const froms = scenes.map((_, i) => (i === 0 ? 0 : cuts[i] - half));
   const lengths = scenes.map((_, i) => {
-    const from = i === 0 ? 0 : cuts[i] - half;
     const to = i === scenes.length - 1 ? durationInFrames : cuts[i + 1] + half;
-    return Math.max(transition + 1, to - from);
+    return Math.max(transition + 1, to - froms[i]);
   });
 
   const shorts = style.format === "shorts";
   const letterbox = shorts ? 0 : effectLook(style.effect)?.letterbox || (style.effects.letterbox ? LETTERBOX_HEIGHT : 0);
   // Shorts: sit above the title, channel name and buttons YouTube overlays on the lower quarter.
   const captionBottom = shorts ? 560 : letterbox ? letterbox + 90 : 130;
+  const animated = scenes.some((s) => s.kind === "animated");
+  const theme = animated ? animationTheme(style.niche, style.caption) : null;
+  const words = animated ? cues.flatMap((c) => c.words) : [];
+  // Kinetic typography shows the narration itself, so the captions step aside meanwhile.
+  const kinetic = scenes.flatMap((s) => (s.kind === "animated" ? s.beats.filter((b) => b.kind === "words") : []));
+  let animatedIndex = 0;
 
   return (
     <AbsoluteFill style={{ backgroundColor: "black" }}>
@@ -50,13 +58,28 @@ export const MainVideo: React.FC<MainVideoProps> = ({ audioSrc, audioOffset, sce
                   />
                 ) : null}
                 <TransitionSeries.Sequence durationInFrames={lengths[i]}>
-                  <KenBurnsImage
-                    src={resolveSrc(scene.src)}
-                    index={i}
-                    durationInFrames={lengths[i]}
-                    look={scene}
-                    kenBurns={style.kenBurns}
-                  />
+                  {scene.kind === "animated" ? (
+                    <AnimatedSegment
+                      beats={scene.beats}
+                      from={froms[i]}
+                      durationInFrames={lengths[i]}
+                      theme={theme!}
+                      format={style.format}
+                      images={scene.images.map((im) => ({ src: resolveSrc(im.src), filter: im.filter }))}
+                      index={animatedIndex++}
+                      letterbox={letterbox}
+                      captionBottom={captionBottom}
+                      words={words}
+                    />
+                  ) : (
+                    <KenBurnsImage
+                      src={resolveSrc(scene.src)}
+                      index={i}
+                      durationInFrames={lengths[i]}
+                      look={scene}
+                      kenBurns={style.kenBurns}
+                    />
+                  )}
                 </TransitionSeries.Sequence>
               </Fragment>
             );
@@ -66,7 +89,7 @@ export const MainVideo: React.FC<MainVideoProps> = ({ audioSrc, audioOffset, sce
       <Effects effects={style.effects} cutFrames={cuts.slice(1, -1)} />
       <EffectOverlays effect={style.effect} cutFrames={cuts.slice(1, -1)} />
       {letterbox ? <Letterbox height={letterbox} /> : null}
-      <Captions cues={cues} styleId={style.caption} bottom={captionBottom} sidePadding={shorts ? 70 : 140} />
+      <Captions cues={cues} styleId={style.caption} bottom={captionBottom} sidePadding={shorts ? 70 : 140} hidden={kinetic} />
       {audioSrc ? <Audio src={resolveSrc(audioSrc)} trimBefore={Math.round(audioOffset * fps)} /> : null}
       {music ? <BackgroundMusic music={music} cues={cues} resolve={resolveSrc} /> : null}
     </AbsoluteFill>

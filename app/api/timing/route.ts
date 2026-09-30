@@ -9,6 +9,7 @@ import {
   checkTranscript,
   computeTiming,
   downloadBlob,
+  parseAnimationRequest,
   saveUpload,
   toUserMessage,
 } from "@/lib/pipeline";
@@ -22,7 +23,8 @@ export const maxDuration = 300;
 const error = (message: string, status = 400) => Response.json({ type: "error", message }, { status });
 
 /**
- * Timing only (transcribe + align + niche + cue/scene plan) for the
+ * Timing only (transcribe + align + niche + cue/scene plan, plus the
+ * animated segments' design when they're switched on) for the
  * in-browser preview. Images stay in the browser; only their count is needed.
  * Accepts multipart (local) or JSON with a Vercel Blob audio URL (Vercel).
  */
@@ -32,20 +34,30 @@ export async function POST(req: Request) {
 
   let transcript: string;
   let imageCount: number;
+  let animation: ReturnType<typeof parseAnimationRequest>;
   let audio: FormDataEntryValue | null = null;
   let audioUrl: string | null = null;
   try {
     if (req.headers.get("content-type")?.includes("application/json")) {
-      const body = (await req.json()) as { audioUrl?: unknown; transcript?: unknown; imageCount?: unknown };
+      const body = (await req.json()) as {
+        audioUrl?: unknown;
+        transcript?: unknown;
+        imageCount?: unknown;
+        animated?: unknown;
+        animationData?: unknown;
+        animationShare?: unknown;
+      };
       if (!isBlobUrl(body.audioUrl)) return error("Please add your narration audio file (MP3, WAV or M4A).");
       audioUrl = body.audioUrl;
       transcript = String(body.transcript ?? "").trim();
       imageCount = Number(body.imageCount ?? 0);
+      animation = parseAnimationRequest(body.animated, body.animationData, body.animationShare);
     } else {
       const form = await req.formData();
       audio = form.get("audio");
       transcript = String(form.get("transcript") ?? "").trim();
       imageCount = Number(form.get("imageCount") ?? 0);
+      animation = parseAnimationRequest(form.get("animated"), form.get("animationData"), form.get("animationShare"));
       const audioProblem = checkAudio(audio);
       if (audioProblem) return error(audioProblem);
     }
@@ -60,7 +72,7 @@ export async function POST(req: Request) {
     const audioPath = audioUrl
       ? await downloadBlob(audioUrl, workDir, "narration", "audio")
       : await saveUpload(audio as File, workDir, "narration");
-    return Response.json(await computeTiming(audioPath, transcript, imageCount, workDir));
+    return Response.json(await computeTiming(audioPath, transcript, imageCount, workDir, animation));
   } catch (err) {
     console.error("[timing]", err);
     return error(toUserMessage(err), err instanceof UserFacingError ? 400 : 500);

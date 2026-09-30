@@ -2,6 +2,12 @@
 
 import dynamic from "next/dynamic";
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import {
+  ANIMATION_SHARES,
+  DEFAULT_ANIMATION_SHARE,
+  MAX_ANIMATION_DATA_CHARS,
+  MIN_ANIMATED_VIDEO_SECONDS,
+} from "@/lib/animation";
 import { detectNicheFromText, NICHE_LABELS } from "@/lib/niche";
 import { estimateRenderMinutes } from "@/lib/renderBudget";
 import { buildVideoProps, NICHE_PRESETS, planStyle } from "@/lib/style";
@@ -54,8 +60,10 @@ const FORMAT_LABELS: Record<VideoFormat, { title: string; detail: string }> = {
 const stepIndex = (s: PipelineStage) => STEPS.findIndex((x) => x.stage === (s === "queued" ? "bundling" : s));
 
 /** Identifies the inputs timing was computed from, so we know when it's stale. */
-const timingKey = (audio: File | null, transcript: string, imageCount: number) =>
-  audio ? `${audio.name}:${audio.size}:${audio.lastModified}|${imageCount}|${transcript.trim()}` : "";
+const timingKey = (audio: File | null, transcript: string, imageCount: number, animation: string | null) =>
+  audio
+    ? `${audio.name}:${audio.size}:${audio.lastModified}|${imageCount}|${transcript.trim()}|${animation === null ? "" : `anim:${animation.trim()}`}`
+    : "";
 
 async function readError(res: Response) {
   const data = await res.json().catch(() => null);
@@ -74,6 +82,14 @@ export default function Home() {
   const [format, setFormat] = useState<VideoFormat>("landscape");
   const [music, setMusic] = useState<MusicChoice | null>(null);
   const [musicVolume, setMusicVolume] = useState(DEFAULT_MUSIC_VOLUME);
+  const [animated, setAnimated] = useState(true);
+  const [animationData, setAnimationData] = useState("");
+  const [animationShare, setAnimationShare] = useState<number>(DEFAULT_ANIMATION_SHARE);
+  // Remember the animation settings, so a page reload doesn't quietly switch them off.
+  const settingsLoaded = useRef(false);
+  useEffect(() => {
+    if (settingsLoaded.current) saveAnimationSettings({ animated, share: animationShare, data: animationData });
+  }, [animated, animationShare, animationData]);
   const [busy, setBusy] = useState<Busy>(null);
   const [stage, setStage] = useState<PipelineStage>("upload");
   const [message, setMessage] = useState("");
@@ -88,13 +104,25 @@ export default function Home() {
 
   useEffect(() => {
     setAccessKey(loadAccessKey());
+    const saved = loadAnimationSettings();
+    if (saved) {
+      setAnimated(saved.animated);
+      setAnimationShare(saved.share);
+      setAnimationData(saved.data);
+    }
+    settingsLoaded.current = true;
     fetch("/api/config")
       .then((r) => r.json())
       .then((c: AppConfig) => setConfig(c))
       .catch(() => setConfig(null));
   }, []);
 
-  const currentKey = timingKey(audio?.file ?? null, transcript, images.length);
+  const currentKey = timingKey(
+    audio?.file ?? null,
+    transcript,
+    images.length,
+    animated ? `${animationShare}|${animationData}` : null,
+  );
   const freshTiming = timing && timing.key === currentKey ? timing.value : null;
   // Vercel: estimated render time for the current video.
   const renderMinutes =
@@ -214,6 +242,10 @@ export default function Home() {
     };
   }
 
+  const transcribingMessage = animated
+    ? "Transcribing audio and designing the animated segments…"
+    : "Transcribing audio and aligning your transcript…";
+
   async function onPreview() {
     if (!checkInputs() || !audio) return;
     const key = currentKey;
@@ -223,19 +255,24 @@ export default function Home() {
       if (config?.mode === "vercel") {
         const { audioUrl } = await uploadMedia(false);
         setStage("transcribing");
-        setMessage("Transcribing audio and aligning your transcript…");
+        setMessage(transcribingMessage);
         res = await fetch("/api/timing", {
           method: "POST",
           headers: { "Content-Type": "application/json", ...accessHeaders(accessKey) },
-          body: JSON.stringify({ audioUrl, transcript, imageCount: images.length }),
+          body: JSON.stringify({ audioUrl, transcript, imageCount: images.length, animated, animationData, animationShare }),
         });
       } else {
         const body = new FormData();
         body.append("audio", audio.file);
         body.append("transcript", transcript);
         body.append("imageCount", String(images.length));
+        if (animated) {
+          body.append("animated", "1");
+          body.append("animationData", animationData);
+          body.append("animationShare", String(animationShare));
+        }
         setStage("transcribing");
-        setMessage("Transcribing audio and aligning your transcript…");
+        setMessage(transcribingMessage);
         res = await fetch("/api/timing", { method: "POST", body, headers: accessHeaders(accessKey) });
       }
       if (!res.ok) throw new Error(await readError(res));
@@ -261,6 +298,9 @@ export default function Home() {
       format,
       imageStats: images.map((i) => i.stats),
       musicVolume,
+      animated,
+      animationData: animated ? animationData : "",
+      animationShare,
     };
     try {
       let res: Response;
@@ -282,6 +322,11 @@ export default function Home() {
         body.append("captionStyle", style.captionStyle);
         body.append("effect", style.effect);
         body.append("format", style.format);
+        if (animated) {
+          body.append("animated", "1");
+          body.append("animationData", animationData);
+          body.append("animationShare", String(animationShare));
+        }
         if (music) {
           body.append("music", music.file);
           body.append("musicVolume", String(musicVolume));
@@ -337,7 +382,8 @@ export default function Home() {
   }
 
   const previewProps = useMemo(() => {
-    if (!freshTiming || !audio || images.length !== freshTiming.scenes.length) return null;
+    if (!freshTiming || !audio) return null;
+    if (!freshTiming.scenes.every((s, i) => (s.image ?? i) < images.length)) return null;
     const plan = planStyle({
       niche,
       caption: captionStyle,
@@ -356,6 +402,11 @@ export default function Home() {
   }, [freshTiming, audio, images, niche, captionStyle, effect, format, music, musicVolume]);
 
   const current = stepIndex(stage);
+  const animationPlan = freshTiming?.animation
+    ? `This video: ${freshTiming.animation.segments.length} animated segment${freshTiming.animation.segments.length === 1 ? "" : "s"} (${freshTiming.animation.segments
+        .map((s) => `${formatTime(Math.round(s.start))}–${formatTime(Math.round(s.end))}`)
+        .join(", ")}), designed ${freshTiming.animation.source === "llm" ? "by AI" : "offline (no AI key)"}.`
+    : null;
   const detectedLabel =
     detection.niche === "general" ? "General (no clear niche)" : NICHE_LABELS[detection.niche];
 
@@ -518,7 +569,59 @@ export default function Home() {
         </div>
 
         <div className="field">
-          <label htmlFor="music">4. Background music (optional)</label>
+          <span className="label">4. Animated segments (optional)</span>
+          <label className="check">
+            <input type="checkbox" checked={animated} onChange={(e) => setAnimated(e.target.checked)} disabled={!!busy} />
+            Mix animated chunks in between the photos
+          </label>
+          <p className="hint">
+            Cinematic motion graphics (about 40 s each) spread through the whole video, with photos before, between and
+            after them: your words slamming onto the screen as you say them, over your own photos with moving camera,
+            particles and light streaks, plus giant counters, day-streak calendars, charts and split screens whenever
+            you talk numbers. Needs at least {MIN_ANIMATED_VIDEO_SECONDS} s of narration.
+          </p>
+          {animated ? (
+            <>
+              <label htmlFor="animation-share" className="sublabel">
+                How much of the video is animated
+              </label>
+              <select
+                id="animation-share"
+                className="share-select"
+                value={animationShare}
+                onChange={(e) => setAnimationShare(Number(e.target.value))}
+                disabled={!!busy}
+              >
+                {ANIMATION_SHARES.map((share) => (
+                  <option key={share} value={share}>
+                    {shareLabel(share)}
+                  </option>
+                ))}
+              </select>
+              <p className="hint">{shareExample(animationShare)}</p>
+              <label htmlFor="animation-data" className="sublabel">
+                Data for the animations (optional)
+              </label>
+              <textarea
+                id="animation-data"
+                className="short"
+                value={animationData}
+                maxLength={MAX_ANIMATION_DATA_CHARS}
+                onChange={(e) => setAnimationData(e.target.value)}
+                placeholder={ANIMATION_DATA_EXAMPLE}
+                disabled={!!busy}
+              />
+              <p className="hint">
+                Facts, figures and lists to show when the narration talks about them. Lines like “2023: 14” become
+                bar charts. Numbers are only ever taken from here or from your narration, never made up.
+                {animationPlan ? ` ${animationPlan}` : ""}
+              </p>
+            </>
+          ) : null}
+        </div>
+
+        <div className="field">
+          <label htmlFor="music">5. Background music (optional)</label>
           <MusicInput
             music={music}
             volume={musicVolume}
@@ -587,12 +690,15 @@ export default function Home() {
         <section className="result">
           <h2>Preview</h2>
           <PreviewPlayer inputProps={previewProps} />
+          {freshTiming.animation ? (
+            <TimelineBar duration={freshTiming.durationInSeconds} segments={freshTiming.animation.segments} />
+          ) : null}
           <p className="hint">
             {NICHE_LABELS[niche]} style · {formatTime(Math.round(freshTiming.durationInSeconds))} ·{" "}
             {freshTiming.words} words · {freshTiming.cues.length} captions · {freshTiming.wpm} words/min
             {freshTiming.audioOffset > 0 ? ` · ${freshTiming.audioOffset.toFixed(1)} s of leading silence trimmed` : ""}
-            . Swapping, reordering or restyling updates it instantly; changing the audio, transcript or number of
-            images needs a refresh.
+            . Swapping, reordering or restyling updates it instantly; changing the audio, transcript, number of
+            images or animated segments needs a refresh.
           </p>
         </section>
       ) : timing ? (
@@ -622,6 +728,68 @@ export default function Home() {
       ) : null}
     </main>
   );
+}
+
+const ANIMATION_DATA_EXAMPLE = `For example:
+Electric cars sold worldwide (millions)
+2020: 3
+2022: 10
+2023: 14
+Top reasons people switch: lower running costs, quieter ride, tax credits`;
+
+const ANIMATION_SETTINGS = "auto-video-editor:animation";
+
+function loadAnimationSettings(): { animated: boolean; share: number; data: string } | null {
+  try {
+    const raw = JSON.parse(localStorage.getItem(ANIMATION_SETTINGS) ?? "null");
+    if (!raw || typeof raw.animated !== "boolean") return null;
+    const share = ANIMATION_SHARES.includes(raw.share) ? raw.share : DEFAULT_ANIMATION_SHARE;
+    return { animated: raw.animated, share, data: typeof raw.data === "string" ? raw.data : "" };
+  } catch {
+    return null;
+  }
+}
+
+function saveAnimationSettings(settings: { animated: boolean; share: number; data: string }) {
+  try {
+    localStorage.setItem(ANIMATION_SETTINGS, JSON.stringify(settings));
+  } catch {
+    // Private mode etc.: settings just won't be remembered.
+  }
+}
+
+/** Where the animated chunks fall in the video, under the preview. */
+function TimelineBar({ duration, segments }: { duration: number; segments: { start: number; end: number }[] }) {
+  const total = segments.reduce((n, s) => n + s.end - s.start, 0);
+  return (
+    <div className="timeline">
+      <div className="timeline-bar" aria-hidden>
+        {segments.map((s, i) => (
+          <span
+            key={i}
+            className="timeline-anim"
+            style={{ left: `${(s.start / duration) * 100}%`, width: `${((s.end - s.start) / duration) * 100}%` }}
+          />
+        ))}
+      </div>
+      <p className="hint">
+        <span className="timeline-key" /> Animated: {segments.map((s) => `${formatTime(Math.round(s.start))}–${formatTime(Math.round(s.end))}`).join(", ")} (
+        {formatTime(Math.round(total))} of {formatTime(Math.round(duration))}). Photos everywhere else.
+      </p>
+    </div>
+  );
+}
+
+function shareLabel(share: number) {
+  const pct = Math.round(share * 100);
+  return share === DEFAULT_ANIMATION_SHARE ? `${pct}% (2 of every 5 minutes, recommended)` : `${pct}%`;
+}
+
+/** "In a 5-minute video: 2:00 of animation in 3 chunks…" */
+function shareExample(share: number) {
+  const animated = 300 * share;
+  const chunks = Math.max(1, Math.round(animated / 40));
+  return `In a 5-minute video: ${formatTime(Math.round(animated))} of animation in ${chunks} chunks of about ${Math.round(animated / chunks)} s, spread from start to finish. The video always starts and ends on photos.`;
 }
 
 function formatTime(s: number) {

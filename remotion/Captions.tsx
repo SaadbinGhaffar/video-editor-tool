@@ -6,17 +6,20 @@ import { fontFamily } from "./fonts";
 type Look = CaptionLook;
 const LOOKS = CAPTION_LOOKS;
 
-export const Captions: React.FC<{ cues: CaptionCue[]; styleId: CaptionStyleId; bottom: number; sidePadding: number }> = ({
-  cues,
-  styleId,
-  bottom,
-  sidePadding,
-}) => {
+export const Captions: React.FC<{
+  cues: CaptionCue[];
+  styleId: CaptionStyleId;
+  bottom: number;
+  sidePadding: number;
+  /** Stretches of the video (seconds) that show the words another way, with no captions. */
+  hidden?: { start: number; end: number }[];
+}> = ({ cues, styleId, bottom, sidePadding, hidden = [] }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const t = frame / fps;
-  const cue = cues.find((c) => t >= c.start && t < c.end);
   const look = LOOKS[styleId] ?? LOOKS.bold;
+  if (hidden.some((h) => t >= h.start && t < h.end)) return null;
+  const cue = cues.find((c) => t >= c.start && t < c.end);
 
   return (
     <AbsoluteFill>

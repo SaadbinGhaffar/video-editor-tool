@@ -12,12 +12,44 @@ weave), **Black & white**, **Dreamy glow** (highlight bloom, light leaks) or **V
 layers; the niche's transitions, motion and captions stay. Defined in `lib/videoEffects.ts`
 and drawn by `remotion/videoEffects.tsx`. Each adds roughly 10–35% to render time.
 
+**Animated segments** (optional) turn part of the video into animation. Pick how much: 25%,
+**40% (default: 2 of every 5 minutes)**, 50% or 60%. The animated time is split into chunks of
+about 40 s spread evenly through the whole video, with photos before, between and after them; the
+video always starts and ends on photos, and every cut lands on a sentence break. A 5-minute video
+at 40%: photos 0:00–0:45, animation 0:45–1:25, photos, animation 2:10–2:50, photos, animation
+3:35–4:15, photos to the end.
+
+Each animated chunk is cinematic motion graphics over **your own photos**, darkened, tinted and
+always moving (slow push-ins from a different framing each time, a camera jolt when a key word
+lands), with particles (dust, embers, bokeh, digital squares, or snow when the narration mentions
+it), anamorphic light streaks and hard cuts (white flash, film burn, glitch or dip to black,
+depending on the niche). It's a series of moments ("beats") timed to the narration:
+
+- **Kinetic typography** of the narration itself: a few words at a time slam onto the screen
+  exactly as they're spoken, one key word big and in the accent colour, in stacked, single-line
+  or hero layouts. The normal captions step aside while it runs.
+- **Counters** (a thin ring for percentages), **"day 47" calendars** with days crossed off,
+  **"7 in 10" figure grids**, thin glowing **bar** and self-drawing **line charts**,
+  **split screens** comparing two options over two photos, **numbered lists** and **timelines**
+  that light up as each point is said, and **chapter cards**.
+
+An optional **data** box takes facts and figures to show: runs of `label: number` lines become
+charts (a line chart when the labels are years or months). With an AI key the configured model
+(`ANIMATION_MODEL`, default `openai/gpt-oss-120b` on Groq or `gpt-4.1-mini` on OpenAI) designs
+each chunk from its narration and your data, choosing the moments and the words to emphasise; any counter or
+chart whose numbers don't appear in either is thrown away, so figures are never made up. Without
+a key (or if the model fails) an offline designer builds the same kinds of beats from the
+narration itself (`lib/animation.ts`, `lib/animation-llm.ts`, drawn by
+`remotion/AnimatedSegment.tsx`); offline, most moments are kinetic typography, with a counter,
+calendar, figure grid, timeline or chart wherever you mention numbers, streaks, steps or your data. Photos are spread over the photo stretches in order and reused
+if there are fewer photos than stretches. Needs at least 20 s of narration.
+
 **Format:** a regular **YouTube video** (16:9, 1920×1080) or a **YouTube Short** (9:16,
 1080×1920). Shorts get shorter caption groups (up to 3 words) placed above YouTube's
 on-screen title and buttons, landscape photos shown whole over a blurred backdrop, no
 letterbox bars, and a shorter SEO title/description led by #shorts.
 
-**Preview** (optional) runs only the timing step. It then plays the exact composition
+**Preview** (optional) runs only the timing step (and designs the animated segments, if on). It then plays the exact composition
 in-browser with `@remotion/player`, using your local files. Changing the style, the caption
 look, or the image order updates the preview instantly. **Render MP4** reuses the preview's
 timing, so the file matches what you saw.
@@ -139,7 +171,9 @@ it's validated and reused.
    unmatched transcript words are spread over the gap between their matched neighbours.
    Fillers the recognizer heard but the transcript omits ("um") are dropped.
 5. **Group cues** of 1–4 words, breaking on punctuation and pauses, with no lone word left
-   dangling. **Plan scenes** by snapping each cut to a nearby sentence break.
+   dangling. **Plan scenes** by snapping each cut to a nearby sentence break. With animated
+   segments on, the chosen share of the timeline first becomes ~40 s animated chunks spread
+   between photo stretches, and the animations are designed (one AI call per animated chunk).
 6. **Render** (`lib/render.ts`). The Remotion bundle is built once per server process into
    `.remotion-bundle/`, and renders run one at a time. CRF is 20, rising slightly for grainy
    styles so file sizes stay sensible. Finished MP4s older than 24 h are pruned, and temp
@@ -150,7 +184,7 @@ it's validated and reused.
 ## Tests
 
 ```bash
-npm test             # alignment, cue grouping, scene cuts, niche detection, style planning
+npm test             # alignment, cue grouping, scene cuts, niche detection, style planning, animated segments
 npm run typecheck
 ```
 
@@ -182,7 +216,7 @@ Setup:
    - `APP_ACCESS_KEY` (strongly recommended: without it, anyone with the URL can run
      renders on your account)
    - `CRON_SECRET` (any random string)
-   - optionally `SANDBOX_VCPUS` (default 4) and `SANDBOX_MAX_MINUTES` (default 45), and `NICHE_MODEL`
+   - optionally `SANDBOX_VCPUS` (default 4) and `SANDBOX_MAX_MINUTES` (default 45), `NICHE_MODEL` and `ANIMATION_MODEL`
 4. Redeploy. Sandbox, Blob and OpenAI usage are billed to your accounts.
 
 **Render time limits.** A render runs in one sandbox session, at about 1 frame/s per vCPU

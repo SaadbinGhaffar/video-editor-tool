@@ -1,4 +1,5 @@
 import { groupIntoCues } from "./align";
+import { timelineShots } from "./animation";
 import { CAPTION_LOOKS, FONTS } from "./captionLooks";
 import {
   CAPTION_STYLES,
@@ -9,6 +10,7 @@ import {
   type CaptionStyleId,
   type ImageStats,
   type MainVideoProps,
+  type Scene,
   type NicheId,
   type SceneLook,
   type StylePlan,
@@ -182,7 +184,7 @@ function gradeFor(base: Grade, stats: ImageStats | null): string {
 export type StyleInputs = {
   niche: NicheId;
   caption?: CaptionStyleId | null;
-  timing: Pick<Timing, "wpm" | "scenes" | "cues">;
+  timing: Pick<Timing, "wpm" | "scenes" | "cues"> & { animation?: Timing["animation"] };
   /** One entry per image, in order; null when stats are unknown. */
   imageStats: (ImageStats | null)[];
   effect?: VideoEffectId | null;
@@ -197,7 +199,9 @@ export function planStyle({ niche, caption, timing, imageStats, effect = "none",
 
   // Pace: fast talkers get snappier cuts, slow narration gets longer ones.
   const pace = clamp(150 / Math.max(60, timing.wpm || 150), 0.7, 1.3);
-  const shortestScene = Math.min(...timing.scenes.map((s) => s.end - s.start));
+  // Photos and animated segments are all shots of one series, with transitions between them.
+  const shots = timelineShots(timing);
+  const shortestScene = Math.min(...shots.map((s) => s.end - s.start));
   let seconds = preset.transitionSeconds * pace;
   // Never let a transition eat more than 40% of the shortest image's time.
   seconds = Math.min(seconds, shortestScene * 0.4);
@@ -205,7 +209,7 @@ export function planStyle({ niche, caption, timing, imageStats, effect = "none",
 
   // Rotate through the niche's transitions without repeating back-to-back;
   // the first choice is weighted towards the niche's signature transition.
-  const cuts = Math.max(0, timing.scenes.length - 1);
+  const cuts = Math.max(0, shots.length - 1);
   const pool = preset.transitions;
   const transitions: TransitionKind[] = [];
   for (let i = 0; i < cuts; i++) {
@@ -217,7 +221,9 @@ export function planStyle({ niche, caption, timing, imageStats, effect = "none",
     transitions.push(pick);
   }
 
-  const scenes: SceneLook[] = timing.scenes.map((_, i) => {
+  // One look per uploaded image (an image can be shown more than once).
+  const imageCount = Math.max(imageStats.length, ...shots.map((s) => (s.kind === "image" ? s.image + 1 : 0)));
+  const scenes: SceneLook[] = Array.from({ length: imageCount }, (_, i) => {
     const stats = imageStats[i] ?? null;
     return {
       fit: stats && needsBlurFill(stats.aspect, format) ? "blur-fill" : "cover",
@@ -266,7 +272,12 @@ export function buildVideoProps(
     audioOffset: timing.audioOffset,
     durationInSeconds: timing.durationInSeconds,
     cues: plan.format === "shorts" ? shortsCues(timing.cues) : timing.cues,
-    scenes: timing.scenes.map((s, i) => ({ ...s, ...looks[i], src: imageSrcs[i] })),
+    scenes: timelineShots(timing).map(
+      (shot): Scene =>
+        shot.kind === "image"
+          ? { kind: "image", start: shot.start, end: shot.end, ...looks[shot.image], src: imageSrcs[shot.image] }
+          : { ...shot, images: imageSrcs.map((src, i) => ({ src, filter: looks[i]?.filter ?? "" })) },
+    ),
     style,
   };
 }

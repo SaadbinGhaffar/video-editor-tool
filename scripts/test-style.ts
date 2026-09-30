@@ -32,6 +32,7 @@ const timing = (images: number, duration = 30, wpm = 150): Timing => ({
   provider: "test",
   detected: { niche: "general", confidence: 0, signals: [], source: "keywords" },
   scenes: Array.from({ length: images }, (_, i) => ({ start: (i * duration) / images, end: ((i + 1) * duration) / images })),
+  animation: null,
   cues: [{ start: 0, end: 1, words: [{ text: "hello", start: 0, end: 1 }] }],
 });
 
@@ -76,8 +77,10 @@ const timing = (images: number, duration = 30, wpm = 150): Timing => ({
   const bright = (f: string) => Number(/brightness\(([\d.]+)\)/.exec(f)![1]);
   assert.ok(bright(plan.scenes[0].filter) > bright(plan.scenes[1].filter), "dark photo is lifted more");
   const props = buildVideoProps(timing(2), plan, "a.mp3", ["1.jpg", "2.jpg"]);
-  assert.equal(props.scenes[0].src, "1.jpg");
-  assert.equal(props.scenes[0].fit, "blur-fill");
+  const first = props.scenes[0];
+  assert.ok(first.kind === "image");
+  assert.equal(first.src, "1.jpg");
+  assert.equal(first.fit, "blur-fill");
   console.log("ok  per-image grade + portrait fit:", plan.scenes.map((s) => s.filter).join(" | "));
 }
 

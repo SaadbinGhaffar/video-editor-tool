@@ -495,3 +495,59 @@ input.text {
   margin-left: auto;
   margin-right: auto;
 }
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.check input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.sublabel {
+  display: block;
+  font-weight: 600;
+  margin: 14px 0 6px;
+}
+
+textarea.short {
+  min-height: 120px;
+}
+
+select.share-select {
+  max-width: 420px;
+}
+
+.timeline {
+  margin-top: 12px;
+}
+
+.timeline-bar {
+  position: relative;
+  height: 10px;
+  border-radius: 5px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.timeline-anim {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: var(--accent);
+}
+
+.timeline-key {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background: var(--accent);
+  vertical-align: middle;
+}

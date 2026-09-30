@@ -89,7 +89,7 @@ export type StylePlan = {
   effect: VideoEffectId;
   /** Length of every image-to-image transition, in frames (even). */
   transitionFrames: number;
-  /** One per cut (images - 1). */
+  /** One per cut between shots (photos and animated segments). */
   transitions: TransitionKind[];
   kenBurns: { zoom: number; pan: number; punchIn: boolean };
   effects: {
@@ -100,8 +100,59 @@ export type StylePlan = {
     /** Colour laid over the whole frame with soft-light blending, or null. */
     tint: string | null;
   };
+  /** One per uploaded image, in upload order. */
   scenes: SceneLook[];
 };
+
+// ---------------------------------------------------------------------------
+// Animated segments
+// ---------------------------------------------------------------------------
+
+/** A line of an animated list, revealed when the narration reaches it (`at`, seconds). */
+export type AnimItem = { text: string; at: number };
+
+/**
+ * One moment inside an animated segment, shown from `start` to `end`
+ * (seconds, on the video's timeline) over the user's own photos, graded and
+ * moving. "words" is kinetic typography of the narration itself.
+ */
+export type AnimBeat = { start: number; end: number } & (
+  /** The narration's words slamming in as they're spoken (replaces the captions meanwhile). */
+  | { kind: "words"; emphasis: string[] }
+  /** A chapter card. */
+  | { kind: "title"; title: string; subtitle: string | null }
+  /** Numbered points appearing as they're said. */
+  | { kind: "bullets"; title: string | null; items: AnimItem[] }
+  /** Stages along a glowing line, lighting up as they're said. */
+  | { kind: "steps"; title: string | null; items: AnimItem[] }
+  /** A giant counter (a thin ring for percentages). */
+  | { kind: "stat"; value: number; decimals: number; prefix: string; suffix: string; label: string }
+  /** "Day 47": a calendar grid with days crossed off one by one. */
+  | { kind: "streak"; total: number; marked: number; label: string }
+  /** "7 in 10": a grid of figures lighting up. */
+  | { kind: "pictogram"; filled: number; total: number; label: string }
+  | { kind: "bars"; title: string | null; unit: string; bars: { label: string; value: number }[] }
+  /** A line chart that draws itself, for values over time. */
+  | { kind: "line"; title: string | null; unit: string; points: { label: string; value: number }[] }
+  /** Split screen: two photos side by side. */
+  | { kind: "compare"; left: { title: string; points: string[] }; right: { title: string; points: string[] } }
+);
+export type AnimBeatKind = AnimBeat["kind"];
+
+/** A chunk of the video drawn as animation instead of photos. */
+export type AnimatedSegment = { start: number; end: number; beats: AnimBeat[] };
+
+export type AnimationPlan = {
+  segments: AnimatedSegment[];
+  /** "llm" when an AI model designed the beats; "basic" is the offline fallback. */
+  source: "llm" | "basic";
+};
+
+/**
+ * What the user asked for: animated chunks on/off, how much of the video they
+ * cover (0–1), and facts and figures they can show.
+ */
+export type AnimationRequest = { enabled: boolean; share: number; data: string };
 
 /** Everything the video needs besides the media files themselves. */
 export type Timing = {
@@ -109,7 +160,14 @@ export type Timing = {
   /** Seconds of leading silence skipped from the audio file. */
   audioOffset: number;
   cues: CaptionCue[];
-  scenes: { start: number; end: number }[];
+  /**
+   * Photo slices of the timeline. `image` is the uploaded image shown (0-based);
+   * when absent it's the scene's own index. With animated segments, an image
+   * can appear more than once.
+   */
+  scenes: { start: number; end: number; image?: number }[];
+  /** Animated chunks between the photo scenes, or null when the video is photos only. */
+  animation: AnimationPlan | null;
   /** Number of transcript words that were timed. */
   words: number;
   /** Speaking rate, words per minute. */
@@ -120,11 +178,22 @@ export type Timing = {
 };
 
 /** One image's slice of the timeline. Times in seconds. */
-export type Scene = SceneLook & {
+export type ImageScene = SceneLook & {
+  kind: "image";
   src: string;
   start: number;
   end: number;
 };
+
+/** An animated chunk of the timeline. Times in seconds. */
+export type AnimatedScene = AnimatedSegment & {
+  kind: "animated";
+  /** The uploaded photos (with their grade), used as the moving backgrounds. */
+  images: { src: string; filter: string }[];
+};
+
+/** One shot of the video, in order: a photo or an animated segment. */
+export type Scene = ImageScene | AnimatedScene;
 
 /** Props passed to the Remotion composition. */
 export type MainVideoProps = {

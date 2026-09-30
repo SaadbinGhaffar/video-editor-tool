@@ -14,6 +14,7 @@ import {
   downloadBlob,
   isFile,
   isMusicUrl,
+  parseAnimationRequest,
   parseCaptionStyle,
   parseImageStats,
   parseMusicVolume,
@@ -26,7 +27,7 @@ import {
 } from "@/lib/pipeline";
 import { pruneOldRenders, renderVideo } from "@/lib/render";
 import { buildVideoProps, NEUTRAL_IMAGE_STATS, planStyle } from "@/lib/style";
-import type { GenerateEvent, ImageStats, Timing } from "@/lib/types";
+import type { AnimationRequest, GenerateEvent, ImageStats, Timing } from "@/lib/types";
 
 // Rendering launches headless Chromium + ffmpeg (locally) or drives a Vercel
 // Sandbox (on Vercel): either way it needs the Node runtime.
@@ -46,6 +47,7 @@ type Job = {
   format: ReturnType<typeof parseVideoFormat>;
   imageStats: (ImageStats | null)[];
   musicVolume: number;
+  animation: AnimationRequest;
 } & (
   | { kind: "upload"; audio: File; images: File[]; music: File | null }
   | { kind: "blob"; audioUrl: string; imageUrls: string[]; musicUrl: string | null }
@@ -63,15 +65,17 @@ async function readJob(req: Request): Promise<Job | Response> {
         checkTranscript(transcript) ??
         (b.musicUrl && !isMusicUrl(b.musicUrl) ? "Background music must be an MP3, WAV or M4A file." : null);
       if (problem) return badRequest(problem);
+      const animation = parseAnimationRequest(b.animated, b.animationData, b.animationShare);
       return {
         kind: "blob",
+        animation,
         audioUrl: b.audioUrl as string,
         imageUrls: imageUrls as string[],
         musicUrl: isMusicUrl(b.musicUrl) ? b.musicUrl : null,
         musicVolume: parseMusicVolume(b.musicVolume),
         transcript,
         imageCount: imageUrls.length,
-        previewTiming: parseTiming(b.timing ? JSON.stringify(b.timing) : null, imageUrls.length),
+        previewTiming: parseTiming(b.timing ? JSON.stringify(b.timing) : null, imageUrls.length, animation.enabled),
         niche: parseNiche(b.niche),
         caption: parseCaptionStyle(b.captionStyle),
         effect: parseVideoEffect(b.effect),
@@ -86,15 +90,17 @@ async function readJob(req: Request): Promise<Job | Response> {
     const music = form.get("music");
     const problem = checkAudio(audio) ?? checkTranscript(transcript) ?? checkImages(images) ?? checkMusic(music);
     if (problem) return badRequest(problem);
+    const animation = parseAnimationRequest(form.get("animated"), form.get("animationData"), form.get("animationShare"));
     return {
       kind: "upload",
+      animation,
       audio: audio as File,
       images,
       music: isFile(music) ? music : null,
       musicVolume: parseMusicVolume(form.get("musicVolume")),
       transcript,
       imageCount: images.length,
-      previewTiming: parseTiming(form.get("timing") as string | null, images.length),
+      previewTiming: parseTiming(form.get("timing") as string | null, images.length, animation.enabled),
       niche: parseNiche(form.get("niche")),
       caption: parseCaptionStyle(form.get("captionStyle")),
       effect: parseVideoEffect(form.get("effect")),
@@ -117,9 +123,22 @@ export async function POST(req: Request) {
 
   // ---- Run the pipeline, streaming progress as newline-delimited JSON. ----
   const encoder = new TextEncoder();
+  // Set when the browser goes away (page reloaded or closed) mid-render: the
+  // render still finishes, but there's no one left to send progress to.
+  let closed = false;
   const stream = new ReadableStream<Uint8Array>({
+    cancel() {
+      closed = true;
+    },
     async start(controller) {
-      const send = (e: GenerateEvent) => controller.enqueue(encoder.encode(JSON.stringify(e) + "\n"));
+      const send = (e: GenerateEvent) => {
+        if (closed) return;
+        try {
+          controller.enqueue(encoder.encode(JSON.stringify(e) + "\n"));
+        } catch {
+          closed = true;
+        }
+      };
       let lastPct = -1;
       try {
         let audioPath: string | null = null;
@@ -131,8 +150,14 @@ export async function POST(req: Request) {
 
         let timing = job.previewTiming;
         if (!timing) {
-          send({ type: "progress", stage: "transcribing", message: "Transcribing audio for word timing…" });
-          timing = await computeTiming(await getAudio(), job.transcript, job.imageCount, workDir);
+          send({
+            type: "progress",
+            stage: "transcribing",
+            message: job.animation.enabled
+              ? "Transcribing audio and designing the animated segments…"
+              : "Transcribing audio for word timing…",
+          });
+          timing = await computeTiming(await getAudio(), job.transcript, job.imageCount, workDir, job.animation);
         }
         const t = timing;
         // Same pure planner the browser preview uses, so the render matches it.
@@ -213,7 +238,14 @@ export async function POST(req: Request) {
         send({ type: "error", message: toUserMessage(err) });
       } finally {
         fs.rmSync(workDir, { recursive: true, force: true });
-        controller.close();
+        if (!closed) {
+          closed = true;
+          try {
+            controller.close();
+          } catch {
+            // Already closed by the browser disconnecting.
+          }
+        }
       }
     },
   });

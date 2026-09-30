@@ -4,19 +4,44 @@ import { FORMAT_SIZE, FPS, type MainVideoProps, type Timing } from "../lib/types
 import { MainVideo } from "./MainVideo";
 
 // Sample props so `npm run remotion:studio` shows something without the upload
-// flow. Change `niche` (or add `effect`, or `format: "shorts"`) to preview another style.
+// flow: two photos around an animated segment. Change `niche` (or add `effect`,
+// or `format: "shorts"`) to preview another style.
 const sampleTiming: Timing = {
-  durationInSeconds: 8,
+  durationInSeconds: 24,
   audioOffset: 0,
   words: 8,
   wpm: 150,
   provider: "sample",
   detected: { niche: "travel", confidence: 1, signals: [], source: "keywords" },
   scenes: [
-    { start: 0, end: 2.7 },
-    { start: 2.7, end: 5.4 },
-    { start: 5.4, end: 8 },
+    { start: 0, end: 3.5, image: 0 },
+    { start: 3.5, end: 7, image: 1 },
+    { start: 19, end: 24, image: 2 },
   ],
+  animation: {
+    source: "basic",
+    segments: [
+      {
+        start: 7,
+        end: 19,
+        beats: [
+          { kind: "words", start: 7, end: 10.5, emphasis: ["hidden"] },
+          { kind: "stat", start: 10.5, end: 14.5, value: 73, decimals: 0, prefix: "", suffix: "%", label: "of the coastline is cliffs" },
+          {
+            kind: "bullets",
+            start: 14.5,
+            end: 19,
+            title: "Pack for the trail",
+            items: [
+              { text: "Sturdy shoes", at: 15.2 },
+              { text: "Water and snacks", at: 16.2 },
+              { text: "Go before the tide", at: 17.2 },
+            ],
+          },
+        ],
+      },
+    ],
+  },
   cues: [
     {
       start: 0.2,
